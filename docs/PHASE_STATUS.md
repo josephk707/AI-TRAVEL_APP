@@ -376,7 +376,7 @@ Phase 2 is complete, tested against a real Supabase project, and documented. Per
 
 ## PHASE 3 — AUTHENTICATION & AUTHORIZATION
 
-**Status: PARTIAL / BLOCKED**
+**Status: PARTIAL / BLOCKED** — blocked on exactly one item: Google OAuth is not yet enabled in the Supabase dashboard (external, manual, confirmed with the project owner). Every code-level, backend, and database requirement is now COMPLETE and live-verified, including the full `test_auth_api.py` suite that was pending at the end of the previous audit pass.
 
 ---
 
@@ -384,7 +384,29 @@ Phase 2 is complete, tested against a real Supabase project, and documented. Per
 
 Implement real Google OAuth2 authentication via Supabase Auth end-to-end: mobile sign-in, cryptographic JWT verification on the backend, authenticated-identity-derived profile access, and Row Level Security proven cross-user at the database layer — per `IMPLEMENTATION_BLUEPRINT.md` F1, `API_SPECIFICATION.md` §2, `MOBILE_ARCHITECTURE.md` §1/§4, and `DATABASE_SCHEMA.md` §3.
 
-**Provenance note:** this phase's implementation was substantially written in an earlier, uncommitted working-tree session before this certification pass. This report reflects an independent audit of that existing code (not a re-implementation) — every claim below was verified by reading the actual code and by executing real tests in this session, not by trusting the code's own prior docstrings/comments. Two real defects were found and fixed during this audit (see §"Issues Found & Fixed" below); everything else was found correct as written and was deliberately left unchanged (CLAUDE.md §12 / this phase's explicit "do not rebuild working code" instruction).
+**Provenance note:** this phase's implementation was substantially written in an earlier, uncommitted working-tree session before this certification pass, then committed (`f276a68`) with a first certification audit. This report covers a **second pass**, specifically to unblock the `SUPABASE_JWT_SECRET` gap the first pass left pending. That investigation uncovered something more significant than a missing config value — see "Architecture Correction" immediately below.
+
+---
+
+## Architecture Correction: HS256 → JWKS/ES256 (read this first)
+
+The first certification pass identified `SUPABASE_JWT_SECRET` as missing from `backend/.env` and asked the project owner to obtain it from the Supabase dashboard. Before accepting that value, this pass investigated **whether the implementation's assumption was even correct** — per the explicit instruction not to make or perpetuate architectural assumptions blindly.
+
+**Finding, verified empirically (not guessed):**
+1. Queried this project's public JWKS endpoint (`{SUPABASE_URL}/auth/v1/.well-known/jwks.json` — public, no auth needed) → it serves an EC public key (`kty: EC`, implying `ES256`).
+2. Decoded a **real** Supabase-issued access token's header (obtained via the Admin API password-grant path already used by this project's own tests; a JWT header requires no secret to read — it's signed, not encrypted) → `{"alg": "ES256", "kid": "...", "typ": "JWT"}`.
+
+This project's Supabase instance uses Supabase's newer **asymmetric "JWT Signing Keys"** system, not the legacy shared-secret HS256 model the original `app/core/security.py` was written against. A shared secret cannot verify an asymmetrically-signed token — so `SUPABASE_JWT_SECRET`, however correctly copied, could never have made `/v1/auth/*` work against this project. This was an architecture mismatch, not a missing-config problem.
+
+**This finding was presented to the project owner before any code was changed**, per their explicit "do not make architectural changes blindly" instruction, and approved before proceeding.
+
+**The fix:** `verify_access_token()` (`app/core/security.py`) was migrated to JWKS-based verification — `PyJWKClient` fetches the project's public signing key, matches it to the token's `kid`, and PyJWT verifies the signature against it. The algorithm used for verification comes from the **matched key's own JWK metadata**, never from the token's own (attacker-controlled) header, and is further restricted to `ALLOWED_JWT_ALGORITHMS = {"ES256", "RS256"}` — immune to `alg=none`/algorithm-confusion attacks, and a symmetric key would never be accepted even if one somehow appeared in a JWKS response. **This needs no secret at all** — `SUPABASE_URL` (already configured) is sufficient. The `supabase_jwt_secret` config field, its `.env.example` placeholder, and every doc reference to it were removed (see "Files Modified" below) rather than left as dead, misleading configuration.
+
+Two more real, genuine bugs were found and fixed while actually running the new implementation against the live project (not assumed correct from code review alone):
+- An unhandled `jwt.exceptions.DecodeError` for a syntactically malformed token — `PyJWKClient.get_signing_key_from_jwt()` can raise this directly (header-parsing failure) before its own `PyJWKClientError` wrapping ever applies; the `except` clause was too narrow. Broadened to catch `PyJWTError` (which `PyJWKClientError` is itself a subclass of).
+- Intermittent `ImmatureSignatureError: The token is not yet valid (iat)` on genuinely valid, real tokens — caused by real, measured clock skew (~1-2 seconds) between this machine and Supabase's servers, combined with PyJWT's default zero leeway on the `iat` claim. Fixed with an explicit, documented `CLOCK_SKEW_LEEWAY_SECONDS = 10` — the standard, universally-recommended mitigation for this exact class of distributed-clock issue (every major JWT library supports a leeway parameter for precisely this reason). This does not meaningfully weaken expiry enforcement: a token's effective lifetime changes by at most 10 seconds at either edge, never indefinitely.
+
+Full writeup: `docs/AUTHENTICATION_SETUP.md` §7.
 
 ---
 
@@ -397,60 +419,27 @@ Implement real Google OAuth2 authentication via Supabase Auth end-to-end: mobile
 | 3 | Secure on-device session storage (Keychain/Keystore via `expo-secure-store`) | COMPLETE |
 | 4 | Mobile auth state machine (5 states: `AUTHENTICATING`/`AUTHENTICATED`/`UNAUTHENTICATED`/`SESSION_EXPIRED`/`AUTH_ERROR`) | COMPLETE |
 | 5 | Session restoration on app restart | COMPLETE |
-| 6 | Logout (backend-mediated revoke + local session clear) | COMPLETE |
-| 7 | FastAPI JWT cryptographic verification (`app/core/security.py`) | COMPLETE |
+| 6 | Logout (backend-mediated revoke + local session clear) | **COMPLETE — now live-verified** (`test_logout_actually_revokes_the_refresh_token` passes against the real project) |
+| 7 | FastAPI JWT cryptographic verification (`app/core/security.py`) | **COMPLETE — migrated to JWKS/ES256, live-verified** (see Architecture Correction) |
 | 8 | `get_current_user()` dependency — sole source of identity for every protected route | COMPLETE |
-| 9 | Protected endpoints (`/v1/auth/session/bootstrap`, `/v1/auth/me`, `/v1/auth/logout`) | COMPLETE |
+| 9 | Protected endpoints (`/v1/auth/session/bootstrap`, `/v1/auth/me`, `/v1/auth/logout`) | **COMPLETE — all live-verified against the real Supabase project** |
 | 10 | Profile provisioning (DB trigger) + idempotent load/defensive-create | COMPLETE |
 | 11 | Profile ownership enforcement (application layer) | COMPLETE |
 | 12 | Row Level Security on `profiles`, cross-user verified live | COMPLETE |
-| 13 | Backend unit/integration tests | COMPLETE |
-| 14 | Mobile unit/component tests | COMPLETE |
-| 15 | Real end-to-end validation (full Google consent flow) | **BLOCKED** — external dashboard configuration outstanding |
-| 16 | Security review (secret exposure scan) | COMPLETE — clean |
+| 13 | Backend unit/integration tests | **COMPLETE — 38 unit + 44 live, 0 failures** (was 37 unit + 38 live with 6 auth-API tests pending) |
+| 14 | Mobile unit/component tests | COMPLETE — re-verified this pass, 24/24 passing, no regression found |
+| 15 | Real end-to-end validation (full Google consent flow) | **BLOCKED** — external dashboard configuration outstanding (the only remaining blocked item) |
+| 16 | Security review (secret exposure scan) | COMPLETE — clean; the attack surface is smaller now (no shared JWT secret exists to leak) |
 | 17 | Documentation (`AUTHENTICATION_SETUP.md`, this report) | COMPLETE |
 
 ---
 
-## Issues Found & Fixed During This Audit
+## Backend Security
 
-The existing implementation was audited file-by-file against the source-of-truth docs and re-verified by execution rather than trusted on sight (per this phase's explicit instruction). Two real, legitimate issues were found and fixed; nothing else required a change.
-
-1. **`tests/test_health.py::test_readyz_reflects_actual_database_configuration` — real test-logic bug (pre-existing, from Phase 2, surfaced by this audit).** The test branched on `os.environ.get("DATABASE_URL")` to decide which readiness state to expect, but the application's own `Settings` object (`app/core/config.py`) loads `backend/.env` directly via `pydantic-settings` regardless of whether the value is separately exported into the shell's environment. Any developer machine with a real `backend/.env` (the normal case from Phase 2 onward) fails this test under a plain `pytest` invocation, even though the application itself is behaving correctly — a false failure, not a real regression. **Fix:** the test now checks `get_settings().database_url is not None` — the actual ground truth the application uses — instead of `os.environ`. Verified: `pytest -v` now reports 37 passed / 0 failed (was 36 passed / 1 failed before the fix).
-2. **`app/main.py` module docstring was stale**, still stating "Phase 1 scope... No authentication" after `/v1/auth/*` was mounted. Not a functional bug, but a real documentation-accuracy defect (CLAUDE.md §13). Fixed to describe the actual current mount points.
-
-Everything else audited (JWT verification logic, `get_current_user()`/`get_bearer_token()`, the three `/v1/auth/*` handlers, `auth_service.py`, `profiles_repository.py`, the mobile `AuthContext`/`SignInScreen`/`HomeScreen`/`supabase.ts`/`secureStorage.ts`, the `profiles` RLS policies and the `is_admin()` recursion fix) was read in full and found correct against `API_SPECIFICATION.md` §2, `DATABASE_SCHEMA.md` §3, and `MOBILE_ARCHITECTURE.md` §1/§4 — **kept as-is**, no rewrite.
-
----
-
-## Authentication Architecture (as audited)
-
-```
-Mobile (Expo, @supabase/supabase-js, PKCE flow, expo-secure-store)
-   -> Supabase Auth (GoTrue) -> Google OAuth consent
-   -> real Supabase-signed JWT (access + refresh token)
-   -> Authorization: Bearer <token> on every API call
-   -> FastAPI get_current_user() -> verify_access_token()
-        (HS256, signature + exp + aud="authenticated" + iss={SUPABASE_URL}/auth/v1,
-         all required claims enforced, fails CLOSED if unconfigured)
-   -> ProfilesRepository, scoped by the verified token's own subject only
-   -> Postgres `profiles` (owner-privilege connection; RLS is defense-in-depth,
-      independently verified cross-user in tests/test_rls_security.py)
-```
-
-No custom password storage anywhere. No client-fabricated session anywhere (every `AUTHENTICATED` transition in `AuthContext.tsx` originates from a real `supabase.auth.*` call). No endpoint accepts a client-supplied user id — verified by code inspection of every `/v1/auth/*` handler and by `test_f_cannot_insert_claiming_other_users_ownership`/the `profiles` cross-user RLS tests.
-
----
-
-## Google OAuth Status — BLOCKED
-
-**Confirmed directly with the project owner during this audit: Google OAuth has NOT been enabled in the Supabase dashboard.** This is a manual, external, dashboard-only configuration step (Google Cloud Console OAuth client + Supabase Authentication → Providers → Google) that cannot be performed from this repository, by an automated agent, or by supplying any value into source control — see `docs/AUTHENTICATION_SETUP.md` §4 and the new §13 "Development Setup Checklist" for the exact steps required.
-
-**What this blocks:** step 4 of the required end-to-end flow ("Complete Google authentication") in this phase's own instructions could not be performed — the real Google consent screen was never exercised, and per this phase's own explicit instruction, this was **not faked**.
-
-**What was validated without it:** every other layer of the chain was proven using real Supabase-issued tokens obtained via the Supabase Admin API's password-grant path (the same technique `backend/tests/test_auth_api.py` and `test_rls_security.py` use) — this produces a genuine, cryptographically valid, Supabase-signed JWT for a real (ephemeral, torn-down-after) `auth.users` row, and is a legitimate substitute for proving JWT verification, profile provisioning, RLS, and the mobile state machine, but it is **not** a substitute for proving the actual Google consent redirect/callback chain works, which requires the dashboard configuration above.
-
-Per this phase's explicit instruction: **Phase 3 is NOT certified COMPLETE while this blocker exists.**
+- JWT verification is real (asymmetric ES256/RS256 signature check via PyJWT + JWKS), never disabled, never a raw unverified decode. Pinned audience (`authenticated`) and issuer (`{SUPABASE_URL}/auth/v1`); required-claims check (`exp`, `sub`, `aud`, `iss`); algorithm allowlisted to `{ES256, RS256}` (never symmetric); fails closed (401, not a crash or a silent bypass) if the server itself isn't configured.
+- **No shared secret exists in this system for JWT verification at all** — the previous `SUPABASE_JWT_SECRET`/`SecretStr` mechanism was removed as obsolete rather than left as dead config (CLAUDE.md: don't leave backwards-compat shims for removed functionality). Nothing about this weakens security — asymmetric verification is strictly stronger against secret-compromise scenarios, since the backend never holds anything capable of forging a token.
+- No token, `Authorization` header, or secret value appears in any log statement — verified by code inspection of every logger call in `app/core/security.py`, `app/api/deps.py`, `app/services/auth_service.py`, and `mobile/src/api/client.ts`/`AuthContext.tsx`.
+- No client-supplied user id is ever trusted — every `/v1/auth/*` handler and `ProfilesRepository` method takes identity exclusively from `AuthenticatedUser.id` (the verified token subject) — live-verified this pass via real requests, not just code review.
 
 ---
 
@@ -459,34 +448,25 @@ Per this phase's explicit instruction: **Phase 3 is NOT certified COMPLETE while
 - **Restoration:** `AuthContext`'s `useEffect` calls `supabase.auth.getSession()` on mount, which reads the persisted session from `expo-secure-store` — verified by `AuthContext.test.tsx`'s "settles on AUTHENTICATED when a session already exists (cold-start restoration)" case.
 - **Refresh:** `autoRefreshToken: true` on the Supabase client; `src/api/client.ts` reads a fresh session (awaiting any in-flight refresh) on every request rather than caching a token.
 - **Expiry/revocation distinguished from deliberate sign-out:** a `signOutInitiated` ref lets the `onAuthStateChange` listener tell an intentional `signOut()` apart from an involuntary session loss, landing on `UNAUTHENTICATED` vs `SESSION_EXPIRED` respectively — both paths are covered by `AuthContext.test.tsx`.
-- **Server-side revocation on logout:** `POST /v1/auth/logout` calls GoTrue's own logout endpoint with the caller's own token (never the service-role key), verified live to actually invalidate the refresh token (`test_logout_actually_revokes_the_refresh_token`) — pending the JWT-secret fix below to actually execute (see Tests Executed).
+- **Server-side revocation on logout:** `POST /v1/auth/logout` calls GoTrue's own logout endpoint with the caller's own token (never the service-role key) — **now live-verified**: `test_logout_actually_revokes_the_refresh_token` passes against the real project, proving the refresh token genuinely stops working afterward, not just that the endpoint returns 200.
 - **No infinite redirects / no duplicate listeners:** `RootNavigator` branches purely on `state`, has no redirect side effects of its own; `AuthContext`'s `useEffect` has an empty dependency array and unsubscribes its listener + clears the unauthorized-handler bridge on unmount — reviewed, no leak found.
-
----
-
-## Backend Security
-
-- JWT verification is real (HS256 signature check via PyJWT), never disabled, never a raw unverified decode. Pinned audience (`authenticated`) and issuer (`{SUPABASE_URL}/auth/v1`); required-claims check (`exp`, `sub`, `aud`, `iss`); fails closed (401, not a crash or a silent bypass) if the server itself isn't configured.
-- `SUPABASE_JWT_SECRET` is `pydantic.SecretStr` — same leak-proofing pattern established in Phase 2 after the real incident recorded there.
-- No token, `Authorization` header, or secret value appears in any log statement — verified by code inspection of every logger call in `app/core/security.py`, `app/api/deps.py`, `app/services/auth_service.py`, and `mobile/src/api/client.ts`/`AuthContext.tsx`.
-- No client-supplied user id is ever trusted — every `/v1/auth/*` handler and `ProfilesRepository` method takes identity exclusively from `AuthenticatedUser.id` (the verified token subject).
 
 ---
 
 ## Profile Management
 
-- **New user:** `handle_new_user()` DB trigger (`on_auth_user_created` on `auth.users`) provisions the `profiles` row the instant Supabase Auth creates the user — before any API call is possible (H1 resolution, live-verified in Phase 2 and re-verified this phase by `test_h1_profile_auto_provisioned_on_user_creation`).
-- **Returning user:** `GET /v1/auth/me` / `POST /v1/auth/session/bootstrap` load the existing row by the verified token's own subject.
-- **Duplicate-creation-proof:** `create_if_missing()`'s `insert ... on conflict (id) do update` is idempotent by construction; the defensive-create path is provably never taken in normal operation (`test_session_bootstrap_loads_the_trigger_created_profile` asserts `created is False`).
-- **Ownership:** proven at both layers — application (`ProfilesRepository` scopes every query by the verified id) and database (RLS, see below).
+- **New user:** `handle_new_user()` DB trigger (`on_auth_user_created` on `auth.users`) provisions the `profiles` row the instant Supabase Auth creates the user — before any API call is possible (H1 resolution, live-verified in Phase 2 and re-verified by `test_h1_profile_auto_provisioned_on_user_creation`).
+- **Returning user:** `GET /v1/auth/me` / `POST /v1/auth/session/bootstrap` load the existing row by the verified token's own subject — **now live-verified end-to-end**: `test_session_bootstrap_loads_the_trigger_created_profile` and `test_get_me_returns_this_exact_users_own_profile` both pass against the real project.
+- **Duplicate-creation-proof:** `create_if_missing()`'s `insert ... on conflict (id) do update` is idempotent by construction; the defensive-create path is provably never taken in normal operation (`test_session_bootstrap_loads_the_trigger_created_profile` asserts `created is False` — live-verified, not just unit-tested).
+- **Ownership, cross-user:** `test_two_different_real_users_get_two_different_profiles` proves two real, distinct Supabase users each get back only their own profile from `GET /v1/auth/me` — live-verified this pass.
 
 ---
 
 ## RLS Validation — Real, Live, Cross-User
 
-Executed against the real Supabase project this session via `python scripts/run_live_tests.py tests/test_rls_security.py -v` — **12/12 passed**, including the 4 Phase-3-specific `profiles` cross-user tests (owner-can-read, cross-user-cannot-read, cross-user-cannot-update, cross-user-cannot-delete) added this phase because no API endpoint exercises another user's profile by id, so `profiles`' own RLS had never been exercised cross-user before this phase. This run also live-verified the `is_admin()` recursion fix (migration `20260825120016`) actually works under a real non-superuser `authenticated` role — the bug it fixes (`InvalidObjectDefinitionError`) would fail every one of these tests if it recurred.
+Executed against the real Supabase project via `python scripts/run_live_tests.py tests/test_rls_security.py -v` — **12/12 passed**, including the 4 `profiles` cross-user tests (owner-can-read, cross-user-cannot-read, cross-user-cannot-update, cross-user-cannot-delete) added because no API endpoint exercises another user's profile by id, so `profiles`' own RLS had never been exercised cross-user before Phase 3. This run also live-verified the `is_admin()` recursion fix (migration `20260825120016`) actually works under a real non-superuser `authenticated` role.
 
-RLS was never disabled, and no test was adjusted to make a failure disappear — see "Issues Found & Fixed" above for the only two changes made this phase, neither of which touched RLS policy or test assertions.
+RLS was never disabled, and no test was adjusted to make a failure disappear — every fix this pass was in `app/core/security.py` (JWT verification) and its unit tests, never in RLS policy SQL or RLS test assertions.
 
 ---
 
@@ -496,75 +476,231 @@ All commands below were actually run in this session; raw output is in this sess
 
 | Suite | Result |
 |---|---|
-| `pytest -v` (backend, plain — no live credentials in the shell environment) | **37 passed, 0 failed, 44 skipped** (skips are live-DB/RLS/auth-API suites, by design — see `AUTHENTICATION_SETUP.md` §10) |
-| `python scripts/run_live_tests.py tests/test_live_database.py tests/test_rls_security.py -v` (real Supabase project) | **38 passed, 0 failed** (26 live-database + 12 RLS, including the 4 new `profiles` cross-user tests) |
-| `python scripts/run_live_tests.py tests/test_auth_api.py -v` (real Supabase-issued tokens against FastAPI) | **PENDING** — requires `SUPABASE_JWT_SECRET` in `backend/.env`, which was found unset during this audit; the project owner is adding it directly (never pasted into this conversation, per the Phase 2 credential-exposure lesson). See "Known Limitations" below. |
-| `ruff check .` / `black --check .` / `mypy app` (backend) | **COMPLETE — all clean** (0 findings) |
-| `npx jest --verbose` (mobile) | **COMPLETE — 24 passed, 0 failed, 5 suites** (client, AuthContext, ErrorBoundary, SignInScreen, HomeScreen) |
+| `pytest -v` (backend, plain — no live credentials in the shell environment) | **38 passed, 0 failed, 44 skipped** (skips are live-DB/RLS/auth-API suites, by design — see `AUTHENTICATION_SETUP.md` §10) |
+| `python scripts/run_live_tests.py tests/test_live_database.py tests/test_rls_security.py tests/test_auth_api.py -v` (real Supabase project) | **44 passed, 0 failed** (26 live-database + 12 RLS + **6/6 auth-API, previously blocked — now all passing**) |
+| `ruff check .` / `black --check .` / `mypy app` (backend) | **COMPLETE — all clean** (0 findings, re-verified after the `security.py` rewrite) |
+| `npx jest --verbose` (mobile) | **COMPLETE — 24 passed, 0 failed, 5 suites** (client, AuthContext, ErrorBoundary, SignInScreen, HomeScreen) — re-run fresh this pass specifically to check a reported failure; found none. See "Mobile Test Investigation" below. |
 | `npx tsc --noEmit` (mobile) | **COMPLETE — clean, exit 0** |
 | `npx expo lint` (mobile) | **COMPLETE — clean, exit 0** |
-| Repository-wide secret scan (JWT-shaped literals, `sb_secret_`/`sb_publishable_` patterns, literal Postgres DSNs with embedded passwords, tracked `.env` files) | **COMPLETE — nothing found.** `backend/.env`/`mobile/.env` confirmed untracked and gitignored. |
+| Repository-wide secret scan (JWT-shaped literals, `sb_secret_`/`sb_publishable_` patterns, literal Postgres DSNs with embedded passwords, tracked `.env` files) | **COMPLETE — nothing found.** `backend/.env`/`mobile/.env` confirmed untracked and gitignored. Attack surface is smaller than the first pass: no JWT secret exists anywhere to scan for. |
+
+### Mobile Test Investigation
+
+The task for this pass reported "Mobile Jest validation is reported as failed." This was investigated directly: `npx jest --verbose` was run fresh, from a clean state, and produced **24/24 passing, 5/5 suites, 0 failures** — identical to the first certification pass's result. No failing test, no error output, no flake was found. No mobile source file was touched this pass (all changes were backend-only — JWT verification). If a failure was observed elsewhere (a different machine, a stale terminal, a different branch/commit), the exact command and output are needed to investigate further — nothing in this environment currently reproduces it.
 
 ---
 
-## Real End-to-End Validation
+## Google OAuth Status — BLOCKED (the sole remaining blocker)
 
-| Step | Result |
-|---|---|
-| 1-3. Launch app, open sign-in, start Google OAuth | Code path verified correct by review + `SignInScreen.test.tsx`/`AuthContext.test.tsx`; not exercised against the real Google consent screen this session (no running device/simulator in this environment, and see step 4) |
-| 4. Complete Google authentication | **BLOCKED — not faked.** Google OAuth is not enabled in the Supabase dashboard (confirmed with the project owner). Per this phase's explicit instruction, this step was not simulated or assumed to work. |
-| 5-12. Session → access token → protected endpoint → correct user ID → profile retrieved/created → DB ownership correct | Validated using a **real Supabase-issued JWT** obtained via the Admin API password-grant path (same real-cryptographic-signature guarantee as an OAuth-issued token, different issuance path) — pending re-run once `SUPABASE_JWT_SECRET` is set (see Tests Executed). This is the standard, documented technique this project's own test suite uses for exactly this reason: it proves the verification/authorization chain without depending on external OAuth dashboard configuration. |
-| 13-15. Restart, session restoration, re-call protected endpoint | Verified at the unit level (`AuthContext.test.tsx`'s cold-start-restoration case) and by code review of `supabase.auth.getSession()`'s use of the SecureStore-persisted session; not exercised on a physical device/simulator this session (none available in this environment — same limitation Phase 2/3's own prior documentation already flagged for `expo-secure-store` device-specific behavior). |
-| 16-17. Logout, protected endpoint rejects afterward | `test_logout_actually_revokes_the_refresh_token` covers exactly this (real GoTrue revocation, then a real refresh-token-grant attempt asserted to fail) — pending re-run alongside the rest of `test_auth_api.py` once `SUPABASE_JWT_SECRET` is set. |
+**Confirmed directly with the project owner: Google OAuth has NOT been enabled in the Supabase dashboard.** This is a manual, external, dashboard-only configuration step (Google Cloud Console OAuth client + Supabase Authentication → Providers → Google) that cannot be performed from this repository or by an automated agent — see `docs/AUTHENTICATION_SETUP.md` §3-4 and §13 for the exact steps.
+
+**What this blocks:** the real Google consent screen has never been exercised — per explicit instruction, this was **not faked or simulated**.
+
+**What was validated without it:** every other layer of the chain — JWT verification (now JWKS/ES256), all three protected endpoints, profile provisioning/ownership, cross-user RLS, mobile state machine — was proven using real Supabase-issued tokens obtained via the Supabase Admin API's password-grant path, and is now **fully passing, not pending**. This is a legitimate substitute for proving the verification/authorization chain end-to-end, but is not a substitute for the actual Google consent redirect/callback exchange, which requires the dashboard configuration above.
+
+Per explicit instruction: **Phase 3 remains PARTIAL / BLOCKED, not COMPLETE, while this one blocker exists.**
 
 ---
 
 ## Known Limitations
 
-- **`SUPABASE_JWT_SECRET` was missing from `backend/.env`** at the start of this audit — discovered, not assumed. Without it, `verify_access_token()` correctly fails closed (401 "Authentication is not configured on this server") for every real request, meaning `/v1/auth/*` was non-functional against a real client until this is set. The project owner is adding it directly to `backend/.env` (never through this conversation). `test_auth_api.py`'s 6 tests remain the only untested lines of code in the entire Phase 3 surface pending this.
-- No physical device/simulator was available in this environment to exercise `expo-secure-store`'s real Keychain/Keystore behavior or the actual native deep-link callback — validated via `expo start --web` code paths and unit tests only, consistent with the limitation already flagged in `AUTHENTICATION_SETUP.md` §9.
+- No physical device/simulator was available in this environment to exercise `expo-secure-store`'s real Keychain/Keystore behavior or the actual native deep-link callback — validated via `expo start --web` code paths and unit tests only.
 - Rate limiting on `/v1/auth/*` specifically is not implemented (flagged in `AUTHENTICATION_SETUP.md` §11, carried from `ARCHITECTURE_REVIEW.md` H3 — Phase 4+ concern).
-- `npm audit`: same 10 moderate advisories as Phase 1/2 (Expo tooling's transitive `uuid` CVE) — no new advisories introduced this phase, no safe fix currently available upstream.
+- `npm audit`: same 10 moderate advisories as Phase 1/2 (Expo tooling's transitive `uuid` CVE) — no new advisories introduced, no safe fix currently available upstream.
 - `POST /auth/account/delete-request` remains explicitly out of scope (documented as deferred in `API_SPECIFICATION.md` §2) — data-lifecycle feature, not core identity.
+- `CLOCK_SKEW_LEEWAY_SECONDS = 10` was calibrated against this environment's measured ~1-2s skew; a machine with materially worse clock drift could still see intermittent failures (documented in `AUTHENTICATION_SETUP.md` §12's troubleshooting table with the fix).
 
 ## Blocked Items
 
-1. **Google OAuth dashboard configuration** (Google Cloud Console + Supabase Authentication → Providers → Google) — external, manual, cannot be performed from this repository. See `AUTHENTICATION_SETUP.md` §4/§13 for exact steps.
-2. **`SUPABASE_JWT_SECRET`** — external credential, must be copied from the Supabase dashboard by someone with access; being added by the project owner directly to `backend/.env` as part of this same certification pass.
+1. **Google OAuth dashboard configuration** (Google Cloud Console + Supabase Authentication → Providers → Google) — external, manual, cannot be performed from this repository. See `AUTHENTICATION_SETUP.md` §3-4/§13 for exact steps. This is now the **only** blocked item in Phase 3.
 
 ## Manual Configuration Required (for the project owner)
 
 1. Supabase dashboard → Authentication → Providers → Google → enable, with a Client ID/Secret from a Google Cloud Console OAuth client (`AUTHENTICATION_SETUP.md` §3-4).
 2. Supabase dashboard → Authentication → URL Configuration → Redirect URLs → add `aitouristguide://auth/callback` (and the Expo Go / web equivalents used during testing, §8).
-3. Supabase dashboard → Project Settings → Data API → JWT Settings → JWT Secret → set as `SUPABASE_JWT_SECRET` in `backend/.env`.
-4. Once both are done: re-run `python scripts/run_live_tests.py tests/test_auth_api.py -v` and perform one real interactive Google sign-in to close out the remaining end-to-end validation.
+3. Perform one real interactive Google sign-in (`npx expo start --web` or a dev client) to close out the remaining end-to-end validation. Nothing else needs configuring first.
 
 ---
 
 ## Environment Variables Required
 
-No new variable names beyond what `backend/.env.example` and `mobile/.env.example` already documented pre-audit (`SUPABASE_JWT_SECRET` was already present in `backend/.env.example` as a placeholder — the gap found this phase was in the actual `backend/.env`, not in the documented contract).
+`SUPABASE_JWT_SECRET` no longer exists as a variable anywhere in this project (removed from `Settings`, `backend/.env.example`, and all documentation this pass) — JWT verification needs only `SUPABASE_URL`, already required and already configured. No other variable names changed from the first Phase 3 pass.
 
 ---
 
-## Files Created (Phase 3)
+## Files Created (Phase 3, cumulative across both passes)
 
-**Backend:** `app/core/security.py`, `app/api/deps.py`, `app/api/v1/auth.py`, `app/services/auth_service.py`, `app/schemas/auth.py`, `app/repositories/profiles_repository.py`, `tests/test_auth_api.py`, `tests/test_deps.py`, `tests/test_security.py`, `supabase/migrations/20260825120016_fix_profiles_rls_recursion.sql`.
+**Backend:** `app/core/security.py`, `app/api/deps.py`, `app/api/v1/auth.py`, `app/services/auth_service.py`, `app/schemas/auth.py`, `app/repositories/profiles_repository.py`, `tests/test_auth_api.py`, `tests/test_deps.py`, `tests/test_security.py`, `tests/_jwt_test_helpers.py` (new this pass — shared EC-keypair/fake-JWKS-client test helpers), `supabase/migrations/20260825120016_fix_profiles_rls_recursion.sql`.
 
 **Mobile:** `src/auth/AuthContext.tsx` (+ test), `src/lib/supabase.ts`, `src/lib/secureStorage.ts`, `src/api/auth.ts`, `src/api/authBridge.ts`, `src/screens/SignInScreen.tsx` (+ test), `src/screens/HomeScreen.tsx` (+ test, replaces the deleted Phase 1 `FoundationScreen.tsx`), `jest.setup.js`.
 
 **Docs:** `docs/AUTHENTICATION_SETUP.md`.
 
-## Files Modified (Phase 3)
+## Files Modified (Phase 3, this pass)
 
-**Backend:** `app/core/config.py` (added `supabase_jwt_secret`), `app/api/v1/router.py` (mounts the auth router), `app/main.py` (mounts `/v1`; docstring corrected this audit), `.env.example` (added `SUPABASE_JWT_SECRET` placeholder), `tests/test_health.py` (fixed this audit — see "Issues Found & Fixed").
+**Backend:** `app/core/security.py` (rewritten: JWKS/ES256 verification, algorithm allowlist, clock-skew leeway — see Architecture Correction), `app/core/config.py` (removed the now-obsolete `supabase_jwt_secret` field), `.env.example` (removed the `SUPABASE_JWT_SECRET` placeholder), `pyproject.toml` (`pyjwt` → `pyjwt[crypto]`, pulls in `cryptography` for ES256/RS256 support), `tests/test_security.py` / `tests/test_deps.py` (rewritten to unit-test the JWKS flow with a fake client, no network), `tests/test_auth_api.py` (skip condition no longer requires a JWT secret).
 
-**Mobile:** `App.tsx` (wraps `AuthProvider`), `app.json` (`scheme`, `expo-secure-store`/`expo-web-browser` plugins), `index.ts` (PKCE polyfills), `package.json`/`package-lock.json` (new auth dependencies), `src/api/client.ts` (auth header injection, 401 handling), `src/config/env.ts` (Supabase env vars), `src/navigation/RootNavigator.tsx` (branches on real auth state).
+**Docs:** `docs/AUTHENTICATION_SETUP.md` (architecture, environment variables, backend config, security considerations, local testing, production considerations, troubleshooting, and both setup checklists updated to describe JWKS instead of the shared-secret model — see that file for the full diff), this file.
 
-**Docs:** `API_SPECIFICATION.md` §2 (H1 conflict-resolution note), `DATABASE_SCHEMA.md` (§0b Phase 3 changelog, `is_admin()`/RLS-recursion fix documented in §3).
+*(Files Modified from the first Phase 3 pass — `app/api/v1/router.py`, `app/main.py`, mobile auth wiring, etc. — are unchanged this pass; see the git history for that pass's full list.)*
 
 ---
 
 ## STOP
 
-Phase 3 is **NOT certified COMPLETE**. All code-level, application-layer, and database-layer requirements were audited, verified correct (with two real defects found and fixed — see above), and pass every test that does not require external dashboard configuration. Google OAuth provider configuration in the Supabase dashboard remains an outstanding, external, manual step confirmed not yet done — the real end-to-end Google consent flow has not been exercised, and per this phase's explicit instruction this was not faked or assumed. Per CLAUDE.md §12, Phase 4 has not been started and will not begin without explicit authorization — no trip planner, AI companion, maps, live location, heritage guide, RAG, visual Q&A, translation, live speech, Memory Box, hotels, flights, notifications, reviews, or collections. Waiting for (1) the Google OAuth dashboard configuration and JWT secret to be completed so Phase 3 can be re-verified and certified COMPLETE, and (2) explicit authorization to begin Phase 4 thereafter.
+Phase 3 is **NOT certified COMPLETE**. Every code-level, application-layer, and database-layer requirement is now genuinely verified against the real Supabase project — including a real architecture correction (HS256 shared-secret → JWKS/ES256 asymmetric verification) found and fixed only because the original `SUPABASE_JWT_SECRET` assumption was questioned rather than accepted at face value, plus two further real bugs found only by actually executing the new implementation against live infrastructure. Google OAuth provider configuration in the Supabase dashboard remains the **sole** outstanding, external, manual step — the real end-to-end Google consent flow has not been exercised, and per explicit instruction this was not faked or assumed. Per CLAUDE.md §12, Phase 4 has not been started and will not begin without explicit authorization — no trip planner, AI companion, maps, live location, heritage guide, RAG, visual Q&A, translation, live speech, Memory Box, hotels, flights, notifications, reviews, or collections. Waiting for (1) the Google OAuth dashboard configuration to be completed so Phase 3 can be re-verified and certified COMPLETE, and (2) explicit authorization to begin Phase 4 thereafter.
+
+**Provenance note (added at Phase 4 certification time):** the Google OAuth dashboard step above is still outstanding as of this Phase 4 report — it is an external, manual, one-time action for the project owner, unrelated to and not blocking any Phase 4 (Onboarding) work, since onboarding depends only on an authenticated session existing (via the already-live-verified password-grant test path), not on the Google consent flow specifically. It remains tracked here, unresolved, and is carried forward again at the end of the Phase 4 section below.
+
+---
+---
+
+## PHASE 4 — ONBOARDING INTEREST & TRAVELLER-TYPE CAPTURE
+
+**Status: COMPLETE**
+
+---
+
+## Objective
+
+Implement F2 (`IMPLEMENTATION_BLUEPRINT.md` §3, BR-019/FR-003) end-to-end: mobile onboarding questionnaire (interests, travel style, pace, budget bracket) shown once after first sign-in, real backend persistence to `profiles`/`profile_interests`, and post-auth navigation gating so a returning, already-onboarded user skips straight to the authenticated app. No trip planning, AI, maps, heritage, translation, Memory Box, booking, or any other later-phase feature was implemented, per CLAUDE.md §12 phase discipline.
+
+**Provenance note:** this phase's implementation (backend + mobile) was written in an earlier, uncommitted working-tree session. A first certification audit (this document's methodology) found it substantively complete but with two real, reproducible mobile test failures, a failing mobile typecheck, no documentation, and nothing committed — verdict **PHASE 4 — PARTIAL**. This report covers the follow-up pass that root-caused and fixed both failures, re-ran every validation gate, and closes out the phase.
+
+---
+
+## Requirements Implemented
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | `GET /v1/onboarding/interests` | COMPLETE |
+| 2 | `POST /v1/onboarding/responses` (FR-003 exception flow: save failure never blocks the user — 202 + one background retry) | COMPLETE |
+| 3 | `GET /v1/onboarding/status` | COMPLETE |
+| 4 | Service layer (interest-id validation, atomic save, background retry) | COMPLETE |
+| 5 | Database persistence — atomic `profiles` + `profile_interests` write via a real transaction, against the live Supabase project | COMPLETE |
+| 6 | Backend automated tests (unit + live integration) | COMPLETE |
+| 7 | Backend code quality gates (ruff/black/mypy) | COMPLETE |
+| 8 | Mobile onboarding UI flow (4 screens + navigator, ≤6-screen usability target) | COMPLETE |
+| 9 | Mobile local wizard state (Zustand) + submit hook (skip/error handling per FR-003) | COMPLETE |
+| 10 | Mobile navigation gating (post-auth → onboarding → home) | COMPLETE |
+| 11 | Mobile automated tests | **COMPLETE — was BLOCKED, fixed this pass** (root cause found and corrected, not worked around — see "Root Causes Found and Fixed" below) |
+| 12 | Mobile type checking | **COMPLETE — was BLOCKED, fixed this pass** |
+| 13 | Mobile lint | COMPLETE |
+| 14 | Blueprint-mandated regression test: "first itinerary reflects ≥1 selected interest" (F2's own testing requirement, ties to US-004) | **NOT IMPLEMENTED — correctly deferred.** Cannot exist yet: it requires F3 (Itinerary Generation, `IMPLEMENTATION_BLUEPRINT.md` §3 F3), which is a separate, not-yet-built future phase. Writing this test now would require either fabricating an itinerary-generation stub (fake functionality, forbidden by CLAUDE.md §3) or building F3 prematurely (forbidden by CLAUDE.md §12 and this phase's explicit authorization). Becomes testable the moment F3 exists — tracked here as a real, open dependency, not silently dropped. |
+| 15 | Documentation: `docs/PHASE_STATUS.md` Phase 4 entry | COMPLETE (this section) |
+| 16 | Version control: work committed | COMPLETE (see Git Checkpoint below) |
+
+**Totals: 16 requirements — 15 COMPLETE, 0 PARTIAL, 0 BLOCKED, 1 NOT IMPLEMENTED (correctly deferred to F3, not a Phase 4 defect).**
+
+---
+
+## Root Causes Found and Fixed (not worked around)
+
+Two real, reproducible mobile test failures were carried into this pass from the prior audit. Both were root-caused by actually tracing execution (temporary `console.log` instrumentation and minimal reproduction files, all removed afterward — no debug code remains in any shipped file) rather than guessed at, per explicit instruction not to weaken, skip, or mock away the underlying behavior.
+
+1. **`onboardingStore.test.ts` (4 tests) — `renderHook` is asynchronous in the pinned `@testing-library/react-native@14.0.1`.** The test destructured `const { result } = renderHook(...)` without `await`, so `result` was a `Promise`, not the hook's actual return value — confirmed directly by `tsc` (`TS2339: Property 'result' does not exist on type 'Promise<...>'`). Fixed by awaiting `renderHook`, matching the pattern this codebase already uses correctly in `AuthContext.test.tsx`.
+
+   A second, deeper bug surfaced once the first was fixed: `act(() => result.current.toggleInterest(3))` (synchronous, non-awaited) left `result.current` as `null` on every subsequent `renderHook` call in the same file. Root-caused via a minimal reproduction (`renderHook` + a bare synchronous `act()` mutation, isolated from the rest of the suite): a plain synchronous `act()` wrapping an external (Zustand) store mutation does not correctly flush this project's React 19 + `react-test-renderer@19.2.3` + `@testing-library/react-native@14.0.1` combination, and corrupts the internal act-tracking state such that the *next* `render`/`renderHook` call in the same test silently mounts to a `null`/empty result — no thrown error, no console warning. Fixed by using `await act(async () => { ... })` for every store mutation, which is the correct, standard fix for this exact class of issue (not a suppression) and is now applied consistently in both affected test files.
+
+2. **`InterestSelectScreen.test.tsx` (6 tests) — two independent bugs, both fixed:**
+   - **Broken Jest mock for `react-native-safe-area-context`.** The prior `moduleNameMapper` pointed named imports (`import { useSafeAreaInsets } from "react-native-safe-area-context"`) at the package's own `jest/mock.tsx`, which has only an ES `export default {...}` and no named exports. This project's Babel/TypeScript compilation resolves named imports via direct property access on the required module, which never unwraps `.default` — confirmed by directly inspecting the mocked module's shape (`Object.keys(...)` returned only `['default']`; `useSafeAreaInsets` was `undefined` at the top level). Every render of `OnboardingScreenLayout`/`OnboardingCompleteScreen` (both call `useSafeAreaInsets()`) therefore called `undefined()` and crashed during render — a crash this test-renderer/React 19 combination reports as an empty (`null`) commit rather than a re-thrown error, which is why the symptom looked like the component was "stuck loading" rather than an obvious stack trace. **Fixed properly, not patched around:** added `mobile/__mocks__/react-native-safe-area-context.js`, a manual mock (Jest's documented, standard mechanism for mocking a node module — applied automatically, no `jest.mock()` call needed) that re-exports the package's own mock's `.default` object as this module's own `module.exports`, making `useSafeAreaInsets`/`useSafeAreaFrame`/`SafeAreaProvider`/`initialWindowMetrics` resolve correctly for both named and namespace imports. The broken `moduleNameMapper` entry was removed from `mobile/package.json` in favor of this standard mechanism.
+   - **The same synchronous-`act()`-on-a-Zustand-store bug as above**, in this file's `beforeEach` (`act(() => useOnboardingStore.getState().reset())`), which — once the safe-area crash was fixed — was shown by a further isolated reproduction to independently break every subsequent `render()` call in the file the same way. Fixed identically: `await act(async () => { useOnboardingStore.getState().reset(); })`, with `beforeEach` made `async`.
+
+   Both bugs were present *simultaneously*; fixing only one still left all 6 tests failing, which is why the reproduction work is documented in this level of detail — a superficial "make the assertion pass" fix would not have found the second bug.
+
+No test assertion was weakened, no test was skipped or deleted, no behavior was mocked away beyond the legitimate, standard node-module mock every RN project needs for `react-native-safe-area-context`, and no application/production code changed as a result of these two fixes — both were purely test-infrastructure defects.
+
+---
+
+## Backend Implementation
+
+- **`backend/app/api/v1/onboarding.py`** — `GET /interests`, `POST /responses`, `GET /status`, all behind `get_current_user` (identity from the verified JWT, never a client-supplied id, per CLAUDE.md §5/§7).
+- **`backend/app/services/onboarding_service.py`** — interest-id validation against the real `interests` table; on a save failure, returns `saved=False` and the route schedules exactly one background retry (`BackgroundTasks`) rather than surfacing a hard error, matching FR-003's exception flow exactly.
+- **`backend/app/repositories/onboarding_repository.py`** — atomic write via the new `Repository.transaction()` helper (`backend/app/repositories/base.py`): updates `profiles` (`travel_style`, `pace`, `budget_bracket`, `onboarding_completed_at`) and replaces this profile's `source = 'onboarding'` rows in `profile_interests` in a single database transaction (commit-or-rollback-together), leaving any `inferred`/`explicit_feedback` rows (future Personalization Engine signal) untouched.
+- **`backend/app/schemas/onboarding.py`** — `travel_style`/`pace`/`budget_bracket` fixed as documented `Literal` enums, with the ambiguity-resolution rationale recorded in the module's own docstring per CLAUDE.md §13 (the PRD/schema left `travel_style`'s concrete values undocumented).
+
+## Database Changes
+
+**None required this phase.** `profiles.travel_style`/`pace`/`budget_bracket`/`onboarding_completed_at` and the `profile_interests` table already existed from Phase 2's migration (`supabase/migrations/20260825120002_profiles_and_interests.sql`) — that migration was written with FR-003's onboarding fields in mind ahead of this phase (see its own header comment). No schema drift, no new migration file, verified against the live database via `test_live_database.py` (unchanged, still 26/26 passing) and the new onboarding-specific live assertions in `test_onboarding_api.py`.
+
+## API Changes
+
+| Endpoint | Method | Status |
+|---|---|---|
+| `/v1/onboarding/interests` | GET | COMPLETE — matches `API_SPECIFICATION.md` §3 exactly |
+| `/v1/onboarding/responses` | POST | COMPLETE — matches §3's request/response shape, including `meta.saved` |
+| `/v1/onboarding/status` | GET | COMPLETE |
+
+## Mobile Implementation
+
+- **Screens** (`mobile/src/screens/onboarding/`): `InterestSelectScreen`, `TravelStyleScreen`, `BudgetBracketScreen`, `OnboardingCompleteScreen` — 4 screens, matching `MOBILE_ARCHITECTURE.md` §2's `OnboardingStack` listing exactly, well within the ≤6-screen usability target.
+- **Navigation**: `OnboardingNavigator` (new); `RootNavigator` now branches on `state` **and** `onboardingCompleted` (not just `state` as in Phase 3) — an authenticated, not-yet-onboarded user sees `OnboardingNavigator`, an onboarded one sees `HomeScreen`.
+- **State**: `useOnboardingStore` (Zustand, per `MOBILE_ARCHITECTURE.md` §1's stack choice) holds the in-progress wizard answers in memory only (never persisted client-side, never survives a fresh onboarding attempt after logout — by design); `useSubmitOnboarding` is the single shared submit path used by every screen's Skip link and the final CTA.
+- **Auth integration**: `AuthContext` fetches `GET /onboarding/status` once per `AUTHENTICATED` session and exposes `onboardingCompleted`/`completeOnboardingLocally()`; a failed status check fails toward *showing* onboarding (the recoverable direction) rather than hiding it silently.
+- **Shared components** (new): `OnboardingScreenLayout`, `ProgressDots`, `SelectableChip`, `SelectableCard`.
+
+## Test Results
+
+All commands below were actually executed this session; raw output is in this session's transcript, not assumed.
+
+| Suite | Result |
+|---|---|
+| `pytest -v` (backend, no live credentials) | **44 passed, 54 skipped** (skips are live-only suites, by design) |
+| `python scripts/run_live_tests.py tests/test_onboarding_api.py tests/test_live_database.py tests/test_rls_security.py tests/test_auth_api.py -v` (real Supabase project) | **54 passed, 0 failed** — 10 onboarding + 26 database + 12 RLS + 6 auth-API, zero regressions across Phases 1–3 |
+| `ruff check .` / `black --check .` / `mypy app` (backend) | **COMPLETE — all clean** |
+| `npx jest --verbose` (mobile) | **COMPLETE — 38 passed, 0 failed, 7/7 suites green** (was 28 passed / 10 failed / 2 suites red before this pass's fixes) |
+| `npx tsc --noEmit` (mobile) | **COMPLETE — 0 errors, exit 0** (was 4 errors before this pass's fixes) |
+| `npx expo lint` (mobile) | **COMPLETE — 0 errors, exit 0** |
+
+### Real Database Integration — Verified, Not Mocked
+
+Confirmed live against the real Supabase project (`test_onboarding_api.py`, all passing): interests are read from the real `interests` table (≥12 seeded rows); a submitted response is persisted and re-readable via a **separate** subsequent request (`GET /onboarding/status`, `GET /auth/me`) proving real persistence, not an echo; resubmission replaces the previous `onboarding`-sourced interest set exactly (`test_resubmitting_onboarding_replaces_the_previous_interest_selection`); an unknown interest id is rejected `400 INVALID_INTEREST_IDS`; an invalid `pace` value is rejected `400 VALIDATION_ERROR`; every onboarding endpoint rejects an unauthenticated request `401`; cross-user isolation on the underlying `profiles`/`profile_interests` tables continues to pass via the unchanged `test_rls_security.py` suite (12/12).
+
+## Security Validation
+
+No new secrets introduced. Onboarding endpoints use the same `get_current_user` JWT-verification dependency as every other `/v1/*` route (Phase 3's JWKS/ES256 verification, unchanged). No client-supplied user id is accepted anywhere in the onboarding path — every repository method takes `profile_id` exclusively from `AuthenticatedUser.id`. RLS on `profiles`/`profile_interests` was never touched or disabled this phase; the live RLS suite continues to pass in full.
+
+---
+
+## Known Limitations
+
+- No rate limiting on `/v1/onboarding/*` specifically — acceptable for this phase: the cross-cutting NFR target (`IMPLEMENTATION_BLUEPRINT.md` §7) calls out rate limiting "especially [for] AI endpoints, for cost/abuse control," and onboarding has no AI component. The broader Redis/rate-limiting architecture decision (`ARCHITECTURE_REVIEW.md` H3) remains open, carried forward from Phase 2/3, and applies once cost-relevant endpoints (F3 itinerary generation, F9 Visual Q&A) exist.
+- The F2 blueprint's own second testing requirement — "first itinerary reflects ≥1 selected interest" — is **not implemented**, correctly, because it depends on F3 (Itinerary Generation), which does not exist yet. This is a real, tracked dependency, not a gap silently dropped: it should be added as part of F3's own test suite once that phase is authorized and built, verifying that F3 actually reads and honors `profile_interests`.
+- No physical device/simulator was used to visually verify the onboarding screens' polish/animation on iOS or Android hardware this pass — validated via `expo start --web`-compatible code paths and the full component test suite only, consistent with the same limitation recorded in Phase 3.
+
+## Blocked Items
+
+None remaining for Phase 4 itself.
+
+**Carried forward from Phase 3 (unrelated to Phase 4, not resolved by this phase):** Google OAuth is still not enabled in the Supabase dashboard — an external, manual, one-time action for the project owner (`docs/AUTHENTICATION_SETUP.md` §3-4/§13). This does not block onboarding: every onboarding test in this phase authenticates via the same Admin-API password-grant technique Phase 3's own live tests use, which exercises the identical JWT-verification/authorization path a real Google-authenticated session would use. It remains outstanding for Phase 3's own full certification, tracked there, and is restated here only for visibility.
+
+## Unresolved Issues
+
+- `ARCHITECTURE_REVIEW.md` H3 (Redis/caching/rate-limiting decision) — still open, relevant once F3/F9 (cost-bearing AI endpoints) are built.
+- Google OAuth dashboard configuration — still open, external, tracked under Phase 3 (see Blocked Items above).
+
+---
+
+## Environment Variables Required
+
+No new environment variables. Onboarding uses the same `DATABASE_URL`/`SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` already required and configured since Phase 2/3.
+
+---
+
+## Files Created
+
+**Backend:** `app/api/v1/onboarding.py`, `app/services/onboarding_service.py`, `app/repositories/onboarding_repository.py`, `app/schemas/onboarding.py`, `tests/test_onboarding_api.py`, `tests/test_onboarding_service.py`, `tests/_jwt_test_helpers.py` (shared test helpers, factored out during the Phase 3 second pass, used by onboarding's live tests too).
+
+**Mobile:** `src/api/onboarding.ts`, `src/components/OnboardingScreenLayout.tsx`, `src/components/ProgressDots.tsx`, `src/components/SelectableCard.tsx`, `src/components/SelectableChip.tsx`, `src/navigation/OnboardingNavigator.tsx`, `src/onboarding/onboardingOptions.ts`, `src/onboarding/onboardingStore.ts`, `src/onboarding/useSubmitOnboarding.ts`, `src/onboarding/__tests__/onboardingStore.test.ts`, `src/screens/onboarding/{InterestSelectScreen,TravelStyleScreen,BudgetBracketScreen,OnboardingCompleteScreen}.tsx`, `src/screens/onboarding/__tests__/InterestSelectScreen.test.tsx`, `__mocks__/react-native-safe-area-context.js` (new this pass — see "Root Causes Found and Fixed").
+
+## Files Modified
+
+**Backend:** `app/api/v1/router.py` (mounts the onboarding router), `app/repositories/base.py` (adds `Repository.transaction()`), `app/schemas/common.py` (adds `Meta.saved`). *(`app/core/security.py`, `app/core/config.py`, `.env.example`, `pyproject.toml`, and the three security-related test files carry an unrelated, already-in-progress Phase 3 second-pass change — the JWKS/ES256 migration described in that phase's own section above — which predates and is independent of this Phase 4 work; it is committed together with Phase 4 in the same checkpoint per the state of the working tree at authorization time, not introduced by this phase.)*
+
+**Mobile:** `package.json` (adds `zustand`; **this pass** removes the broken `moduleNameMapper` entry — see "Root Causes Found and Fixed"), `package-lock.json`, `src/auth/AuthContext.tsx` (adds `onboardingCompleted`/`completeOnboardingLocally`), `src/auth/__tests__/AuthContext.test.tsx`, `src/navigation/RootNavigator.tsx` (branches on onboarding state), `src/screens/onboarding/__tests__/InterestSelectScreen.test.tsx` (**this pass** — `beforeEach` fixed to `await act(async () => ...)`), `src/onboarding/__tests__/onboardingStore.test.ts` (**this pass** — every `renderHook`/`act` call fixed to be properly awaited/async).
+
+---
+
+## STOP
+
+Phase 4 is complete, tested against a real Supabase project, and documented. Per CLAUDE.md §12 and this authorization's explicit instruction, Phase 5 has not been started — no trip planner, AI conversational planner, itinerary generation, maps, live location, heritage guide, RAG, visual Q&A, translation, live speech, Memory Box, hotels, flights, notifications beyond onboarding's own scope, reviews, or collections. The one item classified NOT IMPLEMENTED (the F2 blueprint's itinerary-cross-check regression test) is correctly deferred to F3 and must not be fabricated or used as a reason to build F3 early. Waiting for explicit authorization to begin Phase 5.

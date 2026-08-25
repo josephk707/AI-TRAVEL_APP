@@ -68,14 +68,15 @@ class Settings(BaseSettings):
     supabase_service_role_key: SecretStr | None = Field(default=None)  # bypasses RLS — real secret
 
     # --- Auth (Phase 3) ---
-    # The project's JWT signing secret (Dashboard > Settings > API > JWT
-    # Settings) — used to cryptographically verify every user access token
-    # server-side (app/core/security.py). A different value from the
-    # anon/service_role keys above (those are themselves JWTs signed WITH
-    # this secret, not the secret itself). SecretStr: this is the single
-    # most sensitive value in the whole system — anyone with it can forge
-    # a valid session for any user.
-    supabase_jwt_secret: SecretStr | None = Field(default=None)
+    # No JWT signing secret is configured here. This project's Supabase
+    # instance uses the newer asymmetric "JWT Signing Keys" system (ES256),
+    # verified via the project's public JWKS endpoint
+    # ({supabase_url}/auth/v1/.well-known/jwks.json) — see
+    # app/core/security.py's module docstring for the full architecture
+    # decision. Verification needs only supabase_url (above), never a
+    # secret: a shared HS256 secret cannot verify an asymmetrically-signed
+    # token, so this project intentionally has no SUPABASE_JWT_SECRET
+    # setting.
 
     @property
     def cors_origins_list(self) -> list[str]:

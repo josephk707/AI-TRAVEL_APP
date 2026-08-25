@@ -25,10 +25,19 @@
 import type { Session, User } from "@supabase/supabase-js";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { logout as logoutRequest } from "../api/auth";
 import { setUnauthorizedHandler } from "../api/authBridge";
+import { fetchOnboardingStatus } from "../api/onboarding";
 import { supabase } from "../lib/supabase";
 
 // Required once per app so an auth popup/browser tab closes itself after
@@ -52,6 +61,20 @@ interface AuthContextValue {
   /** Returns to UNAUTHENTICATED from AUTH_ERROR/SESSION_EXPIRED so the
    * sign-in screen can be retried without a stale error message lingering. */
   clearError: () => void;
+  /** null = not yet checked (still loading, or not authenticated).
+   * MOBILE_ARCHITECTURE.md §4 assigns the "onboarding-completion flag" to
+   * this context — RootNavigator reads it to decide whether to show
+   * OnboardingNavigator or the authenticated app. Checked once per
+   * AUTHENTICATED session via GET /onboarding/status (app/api/v1/onboarding.py). */
+  onboardingCompleted: boolean | null;
+  /** Optimistically marks onboarding done WITHOUT a server round-trip —
+   * called by the onboarding flow right after its own submit call
+   * completes (whether the backend confirmed a persisted save or accepted
+   * it for a background retry, FR-003's exception flow: a save failure
+   * must never block the user from proceeding). If a background retry
+   * later fails, the worst case is onboarding is shown again on the next
+   * cold start — an acceptable, recoverable edge case, not a masked bug. */
+  completeOnboardingLocally: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -60,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   const [state, setState] = useState<AuthState>("AUTHENTICATING");
   const [session, setSession] = useState<Session | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
   // Distinguishes a deliberate signOut() call from an involuntary session
   // loss (refresh failure / revocation) — both surface as the SDK setting
   // session to null, but the correct end-state differs (UNAUTHENTICATED
@@ -116,6 +140,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       subscription.subscription.unsubscribe();
       setUnauthorizedHandler(null);
     };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Resolve the next value asynchronously even for the "not
+    // authenticated" branch, so every setOnboardingCompleted() call in
+    // this effect happens inside a promise callback rather than
+    // synchronously in the effect body (react-hooks/set-state-in-effect —
+    // matches this codebase's existing pattern of only mutating state
+    // from within an async callback, e.g. the auth effect above).
+    const resolveNext: Promise<boolean | null> =
+      state === "AUTHENTICATED"
+        ? fetchOnboardingStatus()
+            .then((status) => status.onboarding_completed)
+            .catch(() => false) // see catch-rationale below
+        : Promise.resolve(null);
+
+    resolveNext.then((next) => {
+      if (!cancelled) setOnboardingCompleted(next);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // A failed status check resolves to `false` (not left hanging) so the
+    // app fails toward SHOWING onboarding — the recoverable direction,
+    // since the user can still Skip — rather than silently hiding it.
+  }, [state]);
+
+  const completeOnboardingLocally = useCallback((): void => {
+    setOnboardingCompleted(true);
   }, []);
 
   const signInWithGoogle = async (): Promise<void> => {
@@ -214,8 +270,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       signInWithGoogle,
       signOut,
       clearError,
+      onboardingCompleted,
+      completeOnboardingLocally,
     }),
-    [state, session, errorMessage],
+    [state, session, errorMessage, onboardingCompleted, completeOnboardingLocally],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

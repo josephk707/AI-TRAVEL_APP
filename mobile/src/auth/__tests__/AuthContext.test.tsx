@@ -39,6 +39,11 @@ jest.mock("../../api/auth", () => ({
   logout: (...args: unknown[]) => mockLogoutRequest(...args),
 }));
 
+const mockFetchOnboardingStatus = jest.fn();
+jest.mock("../../api/onboarding", () => ({
+  fetchOnboardingStatus: (...args: unknown[]) => mockFetchOnboardingStatus(...args),
+}));
+
 function fakeSession(overrides: Partial<Session> = {}): Session {
   return {
     access_token: "fake-access-token",
@@ -62,6 +67,12 @@ beforeEach(() => {
   mockOnAuthStateChange.mockImplementation((callback: AuthChangeCallback) => {
     capturedListener = callback;
     return { data: { subscription: { unsubscribe: jest.fn() } } };
+  });
+  // Sane default so tests unrelated to onboarding don't need to stub this
+  // themselves — overridden explicitly in the tests that care about it.
+  mockFetchOnboardingStatus.mockResolvedValue({
+    onboarding_completed: true,
+    onboarding_completed_at: "2026-01-01T00:00:00Z",
   });
 });
 
@@ -201,6 +212,60 @@ describe("AuthProvider / useAuth — state transitions", () => {
 
     expect(result.current.state).toBe("AUTH_ERROR");
     expect(result.current.errorMessage).toBe("OAuth provider not configured");
+  });
+
+  it("fetches onboarding status once AUTHENTICATED and exposes it as onboardingCompleted", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: fakeSession() }, error: null });
+    mockFetchOnboardingStatus.mockResolvedValue({
+      onboarding_completed: false,
+      onboarding_completed_at: null,
+    });
+
+    const { result } = await renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.state).toBe("AUTHENTICATED"));
+    await waitFor(() => expect(result.current.onboardingCompleted).toBe(false));
+    expect(mockFetchOnboardingStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("onboardingCompleted is null (unknown) while unauthenticated, never a stale true/false", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
+
+    const { result } = await renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.state).toBe("UNAUTHENTICATED"));
+    expect(result.current.onboardingCompleted).toBeNull();
+    expect(mockFetchOnboardingStatus).not.toHaveBeenCalled();
+  });
+
+  it("a failed onboarding status check resolves to false rather than hanging forever", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: fakeSession() }, error: null });
+    mockFetchOnboardingStatus.mockRejectedValue(new Error("network down"));
+
+    const { result } = await renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => expect(result.current.state).toBe("AUTHENTICATED"));
+    await waitFor(() => expect(result.current.onboardingCompleted).toBe(false));
+  });
+
+  it("completeOnboardingLocally() optimistically flips onboardingCompleted without a server call", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: fakeSession() }, error: null });
+    mockFetchOnboardingStatus.mockResolvedValue({
+      onboarding_completed: false,
+      onboarding_completed_at: null,
+    });
+
+    const { result } = await renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => expect(result.current.onboardingCompleted).toBe(false));
+
+    await act(() => {
+      result.current.completeOnboardingLocally();
+    });
+
+    expect(result.current.onboardingCompleted).toBe(true);
+    // Still only the one initial check — completing locally is genuinely
+    // local, not a disguised re-fetch.
+    expect(mockFetchOnboardingStatus).toHaveBeenCalledTimes(1);
   });
 
   it("clearError() returns from AUTH_ERROR to UNAUTHENTICATED and clears the message", async () => {

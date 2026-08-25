@@ -18,6 +18,8 @@ query with no business logic attached.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import asyncpg
@@ -88,3 +90,26 @@ class Repository:
             raise UpstreamUnavailableError(
                 "Database query failed.", details={"code": "DB_QUERY_ERROR"}
             ) from exc
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
+        """Yields a single connection with an active asyncpg transaction, for
+        callers that must write to more than one table atomically (e.g. an
+        onboarding save that updates `profiles` and replaces
+        `profile_interests` rows together — either both happen or neither
+        does). `conn.transaction()` commits on clean exit and rolls back on
+        any exception, so a caller can simply run multiple `await
+        conn.execute(...)` calls inside this block with no manual
+        commit/rollback bookkeeping.
+
+        Deliberately does NOT catch/rewrap exceptions the way fetch/fetchrow/
+        fetchval do: whatever the caller's own code raises inside the `async
+        with` block (a validation AppError, an asyncpg constraint error, a
+        genuine connection failure) propagates to the caller unchanged —
+        rewrapping it here would risk masking a legitimate business-logic
+        error raised mid-transaction as a generic 503. Only pool
+        availability is checked upfront, matching the other methods' fail-
+        fast behavior when DATABASE_URL isn't configured."""
+        pool = self._require_pool()
+        async with pool.acquire() as conn, conn.transaction():
+            yield conn

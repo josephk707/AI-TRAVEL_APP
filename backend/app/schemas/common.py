@@ -16,6 +16,10 @@ T = TypeVar("T")
 
 class Meta(BaseModel):
     next_cursor: str | None = None
+    # Set by POST /onboarding/responses (API_SPECIFICATION.md §3) when a save
+    # failed and was handed off to a background retry instead of blocking
+    # the caller — absent (None) on any endpoint where it doesn't apply.
+    saved: bool | None = None
 
 
 class Envelope(BaseModel, Generic[T]):

@@ -8,12 +8,13 @@ signed access token — then send that token to OUR OWN FastAPI app exactly
 as a real client would.
 
 Skipped entirely unless DATABASE_URL, SUPABASE_URL,
-SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY and SUPABASE_JWT_SECRET are
-all set.
+SUPABASE_SERVICE_ROLE_KEY and SUPABASE_ANON_KEY are all set. No JWT secret
+is needed — verify_access_token() verifies real tokens via this project's
+public JWKS endpoint (app/core/security.py), not a shared secret.
 
-Run with (all five required):
+Run with (all four required):
   DATABASE_URL=... SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
-    SUPABASE_ANON_KEY=... SUPABASE_JWT_SECRET=... \
+    SUPABASE_ANON_KEY=... \
     pytest tests/test_auth_api.py -v
 """
 
@@ -31,14 +32,13 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
 ANON_KEY = os.environ.get("SUPABASE_ANON_KEY")
-JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
 pytestmark = pytest.mark.skipif(
-    not (DATABASE_URL and SUPABASE_URL and SERVICE_ROLE_KEY and ANON_KEY and JWT_SECRET),
+    not (DATABASE_URL and SUPABASE_URL and SERVICE_ROLE_KEY and ANON_KEY),
     reason=(
         "Full Supabase Auth configuration not set — auth API integration tests "
         "skipped (needs DATABASE_URL, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, "
-        "SUPABASE_ANON_KEY, SUPABASE_JWT_SECRET)"
+        "SUPABASE_ANON_KEY)"
     ),
 )
 

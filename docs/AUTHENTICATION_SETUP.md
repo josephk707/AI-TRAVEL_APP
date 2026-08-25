@@ -36,8 +36,11 @@ supabase-js client
   Authorization: Bearer
   <access_token>            ────────────────────────────────►  get_current_user()
                                                                   dependency:
-                                                                  jwt.decode(token,
-                                                                  SUPABASE_JWT_SECRET,
+                                                                  verify_access_token():
+                                                                  fetch public key from
+                                                                  {SUPABASE_URL}/auth/v1/
+                                                                  .well-known/jwks.json,
+                                                                  jwt.decode(token, key,
                                                                   verify sig/exp/aud/iss)
                                                                        │
                                                                        ▼
@@ -92,15 +95,15 @@ Done once, in the Supabase dashboard, outside this repo:
 
 1. **Authentication → Providers → Google** → enable it, paste the Client ID and Client Secret from §3.
 2. **Authentication → URL Configuration → Redirect URLs** — add the app's deep link: `aitouristguide://auth/callback`. Supabase only redirects to allow-listed URIs; a mismatch here is the most common setup failure (see §12).
-3. **Project Settings → Data API → JWT Settings → JWT Secret** — copy this value into the backend's `SUPABASE_JWT_SECRET` (§5). This is the shared secret `app/core/security.py` uses to cryptographically verify every access token — it is **not** the same value as the anon key or the service-role key (those are themselves JWTs signed *with* this secret).
 
-**Status as of the Phase 3 certification audit (2026-08-25): Google OAuth is NOT yet configured** in this project's Supabase dashboard (steps 1-2 above are outstanding — confirmed directly with the project owner, not assumed). This is an external, manual, dashboard-only step that cannot be performed from this repository or by an AI agent — it requires a human with access to both the Google Cloud Console and the Supabase dashboard. See `PHASE_STATUS.md`'s Phase 3 section for exactly what this blocks (the real end-to-end Google consent-screen flow) and what was validated without it (every other layer: JWT verification, protected endpoints, profile provisioning/ownership, RLS, mobile state machine — all proven with real Supabase-issued tokens obtained via the Admin API password-grant path, which does not require a configured OAuth provider).
+No JWT secret step belongs here anymore — see §7 for why (this project verifies tokens via the public JWKS endpoint, not a shared secret).
+
+**Status as of the Phase 3 certification audit (2026-08-25, updated after a second pass the same day): Google OAuth is NOT yet configured** in this project's Supabase dashboard (steps 1-2 above are outstanding — confirmed directly with the project owner, not assumed). This is an external, manual, dashboard-only step that cannot be performed from this repository or by an AI agent — it requires a human with access to both the Google Cloud Console and the Supabase dashboard. See `PHASE_STATUS.md`'s Phase 3 section for exactly what this blocks (the real end-to-end Google consent-screen flow) and what was validated without it (every other layer: JWT verification, protected endpoints, profile provisioning/ownership, RLS, mobile state machine — all proven with real Supabase-issued tokens obtained via the Admin API password-grant path, which does not require a configured OAuth provider, and now runs with zero manual secret configuration — see §7).
 
 **To unblock, a human with dashboard access must:**
 1. Complete Google Cloud OAuth Client setup (§3 above) — create the OAuth client, note the Client ID/Secret.
 2. Complete Supabase Auth provider setup (§4 above, steps 1-2) — enable the Google provider with those credentials, add the redirect URL allow-list entries (§8).
-3. Confirm `SUPABASE_JWT_SECRET` (§4 step 3, §5) is set in `backend/.env` — required independently of Google OAuth for JWT verification to work at all.
-4. Re-run `python scripts/run_live_tests.py tests/test_auth_api.py -v` to confirm the full token-verification chain, then perform one real interactive sign-in (`npx expo start --web` or a dev client) to exercise the actual consent screen.
+3. Perform one real interactive sign-in (`npx expo start --web` or a dev client) to exercise the actual consent screen. Nothing else needs configuring first — JWT verification and every backend/database layer are already live-verified independent of this step (§7, §10).
 
 None of the above involves a secret this repository could supply — Client Secret and dashboard configuration are inherently external to source control.
 
@@ -110,16 +113,17 @@ None of the above involves a secret this repository could supply — Client Secr
 
 | Variable | Where | Sensitivity | Purpose |
 |---|---|---|---|
-| `SUPABASE_URL` | `backend/.env` | Not secret (also known to mobile) | Used to build the expected JWT issuer (`{SUPABASE_URL}/auth/v1`) and to call GoTrue's own `/logout` endpoint server-side |
+| `SUPABASE_URL` | `backend/.env` | Not secret (also known to mobile) | Used to build the expected JWT issuer (`{SUPABASE_URL}/auth/v1`), the JWKS endpoint (`{SUPABASE_URL}/auth/v1/.well-known/jwks.json`) used to cryptographically verify every access token, and to call GoTrue's own `/logout` endpoint server-side |
 | `SUPABASE_ANON_KEY` | `backend/.env` | Not secret by design | Sent as `apikey` on the backend's own call to GoTrue's `/logout` endpoint |
 | `SUPABASE_SERVICE_ROLE_KEY` | `backend/.env` | **Secret** — bypasses RLS entirely | Not used by any Phase 3 code path (`app/services/auth_service.py`'s logout deliberately uses the caller's own token, not this key — see its docstring for why); reserved for future admin-only operations |
-| `SUPABASE_JWT_SECRET` | `backend/.env` | **Secret** — the single most sensitive value in the system | The only thing that makes `verify_access_token()` real cryptographic verification rather than trusting an unverified claim |
 | `DATABASE_URL` | `backend/.env` | **Secret** — embeds the DB password | Direct Postgres connection, full table-owner privilege (bypasses RLS) |
 | `EXPO_PUBLIC_SUPABASE_URL` | `mobile/.env` | Not secret | Supabase project coordinates for the mobile Supabase client |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | `mobile/.env` | Not secret by design (RLS is the real boundary, not this key's secrecy) | Mobile Supabase client init |
 | `EXPO_PUBLIC_API_BASE_URL` | `mobile/.env` | Not secret | Backend API base URL |
 
-**The mobile app must never receive** `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, or `SUPABASE_JWT_SECRET` — structurally enforced by these three living only in `backend/.env`, never in an `EXPO_PUBLIC_*` variable (Metro only inlines `EXPO_PUBLIC_*` names into the client bundle, so a backend-only variable can't accidentally leak into the app even by naming mistake, as long as it isn't prefixed `EXPO_PUBLIC_`).
+**No `SUPABASE_JWT_SECRET` variable exists in this project** (removed during Phase 3 certification — see §7). JWT verification uses `SUPABASE_URL`'s public JWKS endpoint, not a shared secret, so there is nothing secret to configure for it at all.
+
+**The mobile app must never receive** `SUPABASE_SERVICE_ROLE_KEY` or `DATABASE_URL` — structurally enforced by these living only in `backend/.env`, never in an `EXPO_PUBLIC_*` variable (Metro only inlines `EXPO_PUBLIC_*` names into the client bundle, so a backend-only variable can't accidentally leak into the app even by naming mistake, as long as it isn't prefixed `EXPO_PUBLIC_`).
 
 Copy `backend/.env.example` → `backend/.env` and `mobile/.env.example` → `mobile/.env`, then fill in real values. Neither `.env` file is committed (`.gitignore`).
 
@@ -136,10 +140,12 @@ Copy `backend/.env.example` → `backend/.env` and `mobile/.env.example` → `mo
 
 ## 7. Backend configuration
 
-- `app/core/config.py`: `supabase_jwt_secret: SecretStr | None` — never a plain `str`; `SecretStr.__repr__`/`__str__` print `**********`, which is what prevented Incident #2 (`PHASE_STATUS.md` Phase 2) from being possible for this field.
-- `app/core/security.py`: `verify_access_token()` — the sole place a token is cryptographically checked. Pins `algorithms=["HS256"]` (prevents an `alg=none`/algorithm-confusion attack — a token can't opt into a different verification path by claiming a different algorithm), checks `aud="authenticated"`, checks `iss={SUPABASE_URL}/auth/v1`, requires `exp`/`sub`/`aud`/`iss` to be present, and fails closed (raises `UnauthorizedError`) if the server itself isn't fully configured — never falls back to trusting an unverified claim.
+**Architecture decision (documented per CLAUDE.md §13 — found and corrected during Phase 3 certification, 2026-08-25):** `app/core/security.py` originally verified tokens using a shared HS256 secret (`SUPABASE_JWT_SECRET`). Decoding a real access token's header from this project's live Supabase instance (no secret needed to read a JWT header — it's signed, not encrypted) showed `"alg": "ES256"`, and this project's public JWKS endpoint independently confirmed it serves a matching EC public key. This Supabase project uses the newer **asymmetric "JWT Signing Keys"** system, not the legacy shared-secret HS256 model — a shared secret can never verify an asymmetrically-signed token, so the original implementation could not have worked here regardless of what secret value was ever supplied. This was corrected before this document's §4/§5 above were finalized; there is no remaining HS256/`SUPABASE_JWT_SECRET` code path anywhere in this project.
+
+- `app/core/security.py`: `verify_access_token()` — the sole place a token is cryptographically checked. Fetches the project's public signing key from `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` via `PyJWKClient` (no secret involved — the response is public by design), matches the token's `kid` to the correct key, and verifies the signature against it. The verification algorithm is taken from the **matched key's own JWK metadata**, never from the token's own (attacker-controlled) header, and is further restricted to `ALLOWED_JWT_ALGORITHMS = {"ES256", "RS256"}` — this remains immune to `alg=none`/algorithm-confusion attacks, and a symmetric ("oct"/HS256) key would never be accepted even if one somehow appeared in a JWKS response. Also checks `aud="authenticated"`, checks `iss={SUPABASE_URL}/auth/v1`, requires `exp`/`sub`/`aud`/`iss` to be present, applies a small `CLOCK_SKEW_LEEWAY_SECONDS = 10` tolerance on `exp`/`iat`/`nbf` (found necessary by testing against the real project — see §12's clock-skew entry), and fails closed (raises `UnauthorizedError`) if the server itself isn't fully configured (`SUPABASE_URL` unset) — never falls back to trusting an unverified claim.
 - `app/api/deps.py`: `get_current_user()` — the only dependency any protected route uses to learn who is calling. Extracts the bearer token, delegates to `verify_access_token()`.
 - `app/services/auth_service.py`: `revoke_session()` calls GoTrue's `/auth/v1/logout` using the **caller's own access token** (not the service-role key) — needs no elevated privilege, since GoTrue scopes the revocation to whichever session that token belongs to.
+- `backend/pyproject.toml`: `pyjwt[crypto]` (the `[crypto]` extra pulls in the `cryptography` package) — required for ES256/RS256 signature verification; plain `pyjwt` only supports HMAC algorithms.
 
 ---
 
@@ -159,7 +165,7 @@ Supabase's Google provider settings page also shows the fixed `https://<PROJECT_
 
 - **No custom auth table, no passwords stored by this backend.** `auth.users`/`auth.identities` (Supabase-managed) are the only place a credential is ever held.
 - **No locally fabricated JWTs anywhere** — every token in this system, in every environment including tests, originates from a real call to Supabase Auth (interactively via Google OAuth, or via the Admin API + password grant for automated integration tests — `backend/tests/test_auth_api.py`).
-- **Signature, expiry, audience, and issuer are all verified** on every request — see `verify_access_token()` (§7). Verification is never disabled.
+- **Signature, expiry, audience, and issuer are all verified** on every request — see `verify_access_token()` (§7). Verification is never disabled. Verification is asymmetric (JWKS/ES256) — the backend holds no shared secret whose compromise could forge a token; only Supabase's own private signing key (which this project never sees) can do that.
 - **`user_id` is never trusted from the client.** Every `/v1/auth/*` handler resolves identity exclusively from the verified token; no route accepts a user id as input.
 - **Two independent authorization layers** (application-layer scoping + RLS) — see §1. A bug in one is not automatically a full compromise, and both are exercised by real tests (`test_auth_api.py`, `test_rls_security.py`).
 - **Secure on-device storage.** Native platforms use `expo-secure-store` (Keychain/Keystore-backed) — sessions never touch `AsyncStorage`, `localStorage`, or a plaintext file. The web fallback (`localStorage`) exists only for this phase's own `expo start --web` validation path, not for the shipped native product (`mobile/src/lib/secureStorage.ts`'s docstring spells this out).
@@ -173,8 +179,8 @@ Supabase's Google provider settings page also shows the fixed `https://<PROJECT_
 
 | Layer | Command | What it needs |
 |---|---|---|
-| Backend unit (JWT logic) | `pytest tests/test_security.py tests/test_deps.py` | Nothing — test-only signing secrets, no network |
-| Backend integration (real Supabase tokens) | `python scripts/run_live_tests.py -k test_auth_api` | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `SUPABASE_JWT_SECRET` all set in `backend/.env` |
+| Backend unit (JWT logic) | `pytest tests/test_security.py tests/test_deps.py` | Nothing — test-only EC keypairs generated in-process (`tests/_jwt_test_helpers.py`) with a faked JWKS lookup, no network |
+| Backend integration (real Supabase tokens) | `python scripts/run_live_tests.py -k test_auth_api` | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` all set in `backend/.env` — **no JWT secret needed** |
 | Backend RLS (cross-user `profiles`) | `python scripts/run_live_tests.py -k test_rls_security` | `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
 | Mobile unit (state machine, screens) | `npm test` (in `mobile/`) | Nothing — Supabase client fully mocked, test-only fake `EXPO_PUBLIC_*` values from `jest.setup.js` |
 | Full mobile app, manual | `npx expo start --web` (or a dev client) | Real `mobile/.env` values; Google OAuth configured in Supabase (§4) for the consent screen itself to work |
@@ -187,7 +193,7 @@ Never run any of these against production credentials.
 
 - **Custom domain for the Supabase Auth callback**, so the redirect URI a user sees during consent reflects the product's own domain rather than `*.supabase.co` — a Supabase Pro-tier feature, out of scope for this phase's local/dev setup.
 - **EAS Build deep-link registration** — a production native build needs the `aitouristguide://` scheme registered with the OS at the platform level (`app.json`'s `scheme` handles this for Expo-managed builds; a bare/prebuild workflow would need explicit `Info.plist`/`AndroidManifest.xml` entries).
-- **JWT secret rotation** — rotating `SUPABASE_JWT_SECRET` invalidates every currently-issued access token instantly (they fail signature verification) — needs a coordinated rollout (mobile clients re-authenticate), not just a backend config change. Not exercised in this phase.
+- **JWT signing key rotation** — Supabase can rotate its asymmetric signing key from its own dashboard; `PyJWKClient`'s cache (`lifespan=300` seconds, `app/core/security.py`) means this backend picks up a new key within 5 minutes automatically, with no backend config change or redeploy required (a structural improvement over the old shared-secret model, where rotation required updating `SUPABASE_JWT_SECRET` everywhere). Not exercised end-to-end in this phase (no rotation was performed against the live project).
 - **Rate limiting on auth endpoints** specifically (`API_SPECIFICATION.md` §1 already specifies general rate limiting; auth endpoints deserve tighter limits given their sensitivity) — not implemented this phase.
 
 ---
@@ -196,12 +202,13 @@ Never run any of these against production credentials.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `GET /v1/auth/me` → `401 Authentication is not configured on this server.` | `SUPABASE_JWT_SECRET` (or `SUPABASE_URL`) unset in `backend/.env` | Set it from the Supabase dashboard (§4); the server fails closed rather than trusting an unverifiable token |
-| `GET /v1/auth/me` → `401 Invalid or expired authentication token.` immediately after a real sign-in | Clock skew between device and server (rare), or the token really is from a different Supabase project | Check `iss` on the token payload matches this project's `{SUPABASE_URL}/auth/v1` exactly |
+| `GET /v1/auth/me` → `401 Authentication is not configured on this server.` | `SUPABASE_URL` unset in `backend/.env` | Set it from the Supabase dashboard (§4/§5); the server fails closed rather than trusting an unverifiable token |
+| `GET /v1/auth/me` → `401 Invalid or expired authentication token.` immediately after a real sign-in, intermittently | Clock skew between this server and Supabase's own servers — **confirmed to actually occur** during Phase 3 certification (measured ~1-2s skew, enough to trip PyJWT's default zero-leeway `iat`/"not yet valid" check on a genuinely valid token). Mitigated with `CLOCK_SKEW_LEEWAY_SECONDS = 10` (`app/core/security.py`) — if this still occurs, the local machine's clock may have drifted further than that | Check the local machine's clock is NTP-synced; if skew exceeds the leeway, increase `CLOCK_SKEW_LEEWAY_SECONDS` slightly rather than disabling the check |
+| `GET /v1/auth/me` → `401 Invalid or expired authentication token.` consistently, not intermittently | The token really is from a different Supabase project, or the JWKS endpoint is unreachable | Check `iss` on the token payload matches this project's `{SUPABASE_URL}/auth/v1` exactly; check `{SUPABASE_URL}/auth/v1/.well-known/jwks.json` is reachable from the backend's network |
 | Google consent screen loads but redirect back to the app never happens / browser hangs | Redirect URI not in Supabase's allow-list (§4/§8), or a mismatch between the exact URI `signInWithOAuth` requested and what's allow-listed | Add the exact URI `Linking.createURL("auth/callback")` produces for your current environment (native vs Expo Go vs web all differ — §8) |
 | `exchangeCodeForSession` fails with an invalid-grant-style error | The authorization code was already used (e.g., a duplicate redirect fire), or too much time elapsed | Retry sign-in from the start; codes are single-use and short-lived by design |
 | Mobile app crashes at startup with "Missing required environment variable EXPO_PUBLIC_SUPABASE_URL" | `mobile/.env` missing or incomplete | Copy `mobile/.env.example` → `mobile/.env` and fill in both Supabase values (§5) — this is a deliberate loud failure, not a bug, since the app cannot function without them |
-| A backend test in `test_auth_api.py`/`test_rls_security.py` is silently skipped | One or more of `DATABASE_URL`/`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_ANON_KEY`/`SUPABASE_JWT_SECRET` isn't set | Expected/by design when credentials aren't configured (§10) — never "fake" these tests into passing without real credentials |
+| A backend test in `test_auth_api.py`/`test_rls_security.py` is silently skipped | One or more of `DATABASE_URL`/`SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_ANON_KEY` isn't set | Expected/by design when credentials aren't configured (§10) — never "fake" these tests into passing without real credentials |
 
 ---
 
@@ -209,14 +216,13 @@ Never run any of these against production credentials.
 
 For a new machine/environment picking this project up:
 
-1. **Supabase project** — already provisioned (Phase 2); obtain its `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` from the Supabase dashboard (Project Settings → Data API / Database) if you don't already have them.
-2. **JWT secret** — Project Settings → Data API → JWT Settings → JWT Secret → set as `SUPABASE_JWT_SECRET` (§4 step 3).
-3. Copy `backend/.env.example` → `backend/.env`, fill in all five values above. Never paste real credentials into a chat/terminal transcript that isn't your own local shell — this project has a documented incident (`PHASE_STATUS.md` Phase 2) from exactly that mistake.
-4. Copy `mobile/.env.example` → `mobile/.env`, fill in `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (same project, public-safe values) and `EXPO_PUBLIC_API_BASE_URL`.
-5. `cd backend && pip install -e ".[dev]"` then `python -m pytest -v` — should pass with the live-database/RLS/auth-API suites reported `SKIPPED` (they require the env vars to be in the **process environment**, not just `backend/.env` — see §10 above and use `python scripts/run_live_tests.py` to run them for real).
-6. `cd mobile && npm install` then `npm test` — should pass entirely offline (Supabase client is mocked in tests, `jest.setup.js` supplies fake config).
-7. **Google OAuth** (§3-4) — only required to exercise the actual interactive consent screen; every other layer (JWT verification, protected endpoints, RLS) is fully testable without it via the Admin API password-grant technique `test_auth_api.py`/`test_rls_security.py` use.
-8. `cd backend && uvicorn app.main:app --reload` + `cd mobile && npx expo start --web` to run the real app locally.
+1. **Supabase project** — already provisioned (Phase 2); obtain its `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` from the Supabase dashboard (Project Settings → Data API / Database) if you don't already have them. **No JWT secret is needed** — verification uses the project's public JWKS endpoint (§7).
+2. Copy `backend/.env.example` → `backend/.env`, fill in all four values above. Never paste real credentials into a chat/terminal transcript that isn't your own local shell — this project has a documented incident (`PHASE_STATUS.md` Phase 2) from exactly that mistake.
+3. Copy `mobile/.env.example` → `mobile/.env`, fill in `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` (same project, public-safe values) and `EXPO_PUBLIC_API_BASE_URL`.
+4. `cd backend && pip install -e ".[dev]"` then `python -m pytest -v` — should pass with the live-database/RLS/auth-API suites reported `SKIPPED` (they require the env vars to be in the **process environment**, not just `backend/.env` — see §10 above and use `python scripts/run_live_tests.py` to run them for real).
+5. `cd mobile && npm install` then `npm test` — should pass entirely offline (Supabase client is mocked in tests, `jest.setup.js` supplies fake config).
+6. **Google OAuth** (§3-4) — only required to exercise the actual interactive consent screen; every other layer (JWT verification, protected endpoints, RLS) is fully testable without it via the Admin API password-grant technique `test_auth_api.py`/`test_rls_security.py` use — and this now runs with zero manual secret configuration.
+7. `cd backend && uvicorn app.main:app --reload` + `cd mobile && npx expo start --web` to run the real app locally.
 
 ## 14. Production Setup Checklist
 
@@ -224,7 +230,7 @@ Beyond §11's flagged production considerations:
 
 1. A dedicated Supabase **production project**, separate from the dev/staging project used above (`DEPLOYMENT_PLAN.md` §1) — never share a database between environments.
 2. Google OAuth client and Supabase provider configuration (§3-4) repeated against the production project's own credentials and redirect URIs — a production Google OAuth client is a distinct Google Cloud Console entry from any dev/test client.
-3. All five backend secrets (§5) supplied via the hosting platform's secret store (`DEPLOYMENT_PLAN.md` §4), never baked into the container image.
+3. The remaining backend secrets (§5 — `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) supplied via the hosting platform's secret store (`DEPLOYMENT_PLAN.md` §4), never baked into the container image. `SUPABASE_URL`/`SUPABASE_ANON_KEY` aren't secret but still belong in per-environment config, not hardcoded.
 4. EAS Secrets configured for the mobile `production` build profile with the production project's public Supabase coordinates (`DEPLOYMENT_PLAN.md` §3.3).
 5. Rate limiting on `/v1/auth/*` (§11 — not yet implemented) should be in place before production traffic, given auth endpoints are a standard abuse target.
 6. A real backup/restore test of the Supabase production project (`DEPLOYMENT_PLAN.md` §9) before launch — `profiles` and `auth.users` are the most consequential tables to lose.
