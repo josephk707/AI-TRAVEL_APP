@@ -6,6 +6,12 @@ import { ApiError } from "../../api/client";
 import { useAuth } from "../../auth/AuthContext";
 import { HomeScreen } from "../HomeScreen";
 
+const mockNavigate = jest.fn();
+jest.mock("@react-navigation/native", () => ({
+  ...jest.requireActual("@react-navigation/native"),
+  useNavigation: () => ({ navigate: mockNavigate }),
+}));
+
 jest.mock("../../auth/AuthContext", () => ({
   useAuth: jest.fn(),
 }));
@@ -106,5 +112,17 @@ describe("HomeScreen", () => {
     fireEvent.press(screen.getByTestId("sign-out-button"));
 
     expect(signOut).toHaveBeenCalled();
+  });
+
+  it("navigates to Explore when the explore-places card is pressed", async () => {
+    mockBootstrapSession.mockResolvedValue({ profile: PROFILE, created: false });
+    mockFetchMyProfile.mockResolvedValue(PROFILE);
+
+    await render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByTestId("profile-success")).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId("explore-places-button"));
+
+    expect(mockNavigate).toHaveBeenCalledWith("Explore");
   });
 });

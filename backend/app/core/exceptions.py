@@ -27,6 +27,7 @@ logs, leak nothing to the client.
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -34,6 +35,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import HTTPException as FastAPIHTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError as PydanticValidationError
 
 logger = logging.getLogger("app.errors")
 
@@ -126,6 +128,34 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "VALIDATION_ERROR",
                 "Request input failed validation.",
                 {"errors": exc.errors()},
+            ),
+        )
+
+    @app.exception_handler(PydanticValidationError)
+    async def handle_pydantic_validation_error(
+        request: Request, exc: PydanticValidationError
+    ) -> JSONResponse:
+        # A model_validator's cross-field check (e.g. PoiSearchQuery's
+        # "query or lat/lng required", app/schemas/poi.py) raises inside a
+        # Depends()-injected pydantic model's own __init__ during FastAPI's
+        # dependency resolution — a different code path from a request
+        # BODY failing validation (which FastAPI itself converts to
+        # RequestValidationError automatically). Without this handler such
+        # an error would otherwise be an unhandled 500, found as a real bug
+        # by this project's own live API tests (F6, tests/test_pois_api.py)
+        # rather than assumed away. Normalized to the same 400 envelope as
+        # every other validation failure, per API_SPECIFICATION.md §1.
+        logger.info("pydantic_validation_error", extra={"path": request.url.path})
+        # exc.errors() can embed a raw, non-JSON-serializable exception
+        # object in ctx.error for a model_validator failure — exc.json()
+        # (then re-parsed) is pydantic's own guaranteed-serializable
+        # rendering of the same error list.
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=_error_envelope(
+                "VALIDATION_ERROR",
+                "Request input failed validation.",
+                {"errors": json.loads(exc.json())},
             ),
         )
 

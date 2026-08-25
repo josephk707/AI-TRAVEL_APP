@@ -20,6 +20,12 @@ class Meta(BaseModel):
     # failed and was handed off to a background retry instead of blocking
     # the caller — absent (None) on any endpoint where it doesn't apply.
     saved: bool | None = None
+    # Set by GET /pois/search (API_SPECIFICATION.md §5, F6) when live Google
+    # Places augmentation was skipped (not configured or the provider call
+    # failed) — the returned results are still real (local cache/curated),
+    # just possibly incomplete relative to the full live catalog.
+    degraded_mode: bool | None = None
+    message: str | None = None
 
 
 class Envelope(BaseModel, Generic[T]):

@@ -704,3 +704,213 @@ No new environment variables. Onboarding uses the same `DATABASE_URL`/`SUPABASE_
 ## STOP
 
 Phase 4 is complete, tested against a real Supabase project, and documented. Per CLAUDE.md §12 and this authorization's explicit instruction, Phase 5 has not been started — no trip planner, AI conversational planner, itinerary generation, maps, live location, heritage guide, RAG, visual Q&A, translation, live speech, Memory Box, hotels, flights, notifications beyond onboarding's own scope, reviews, or collections. The one item classified NOT IMPLEMENTED (the F2 blueprint's itinerary-cross-check regression test) is correctly deferred to F3 and must not be fabricated or used as a reason to build F3 early. Waiting for explicit authorization to begin Phase 5.
+
+---
+---
+
+## PHASE 5 — MAPS & NAVIGATION (F6)
+
+**Status: PARTIAL — code-complete and live-verified; BLOCKED only on an external Google Maps Platform credential the project owner has not yet provisioned**
+
+---
+
+## Objective
+
+Implement F6 (`IMPLEMENTATION_BLUEPRINT.md` §3, Module 9) end-to-end: a real backend-cached proxy over Google Places for POI search/detail/nearby, backed by the `pois` table PostGIS already provides (Phase 2), and a real mobile map/list browsing experience — per `API_SPECIFICATION.md` §5 and `MOBILE_ARCHITECTURE.md` §8.
+
+**Scope determination (per this authorization's explicit instruction not to assume "Phase 5 = AI"):** this project's own engineering sequence (`PHASE_STATUS.md` Phases 1–4 = infra → DB → F1 Auth → F2 Onboarding) follows `IMPLEMENTATION_BLUEPRINT.md` §8's Build Sequencing verbatim: step 2 is "F1 Auth → F2 Onboarding" (Phases 3–4), and step 3 — the very next item — is **"F6 Maps & Navigation (POI data model needed by almost everything downstream)"**. F6's own blueprint row lists `AI component: None`. F3 (Itinerary Generation, the AI-heavy feature) is step 4, i.e. the *next* phase after this one, not this one. This determination was made by reading the documents, not assumed.
+
+**Architectural decision, documented per CLAUDE.md §13:** F6's blueprint entry places its UI "embedded in `ItineraryViewScreen` and `OnTripCompanionScreen`" — both screens belong to F3/F7, which don't exist yet. Building F6 now therefore requires an interim host: a new standalone `ExploreScreen`/`PoiDetailScreen` pair, reachable from `HomeScreen`, is the genuine, working home for the map/POI feature until F3/F7 exist to embed it into (their own future work is to move the map component, not rebuild the search/cache backend this phase establishes).
+
+---
+
+## Requirement Traceability
+
+| # | Requirement | Blueprint/API ref | Status |
+|---|---|---|---|
+| 1 | `GET /v1/pois/search` — text/category/bounding-box search, backend-cached proxy over Google Places | F6, API_SPECIFICATION.md §5 | COMPLETE |
+| 2 | `GET /v1/pois/nearby` — `ST_DWithin` query against `pois.location` | F6, API_SPECIFICATION.md §5 | COMPLETE |
+| 3 | `GET /v1/pois/{poi_id}` — POI detail | F6, API_SPECIFICATION.md §5 | COMPLETE |
+| 4 | Google Places (New) provider client, real HTTP integration, provider abstraction (never scattered SDK calls) | F6, CLAUDE.md §7/§8 | COMPLETE (code) / **BLOCKED** (no real API key in this environment to exercise a live call against) |
+| 5 | Local cache-first search policy with live augmentation + persistence of genuinely new discoveries | F6 ("backend-cached proxy") | COMPLETE |
+| 6 | Graceful degradation when Google Maps is unconfigured/unavailable — never a hard failure | CLAUDE.md §9, F6 error handling | COMPLETE — live-verified against this environment's actual unconfigured state |
+| 7 | `pois` database — real Supabase PostgreSQL/PostGIS, no schema drift beyond a documented addition | DATABASE_SCHEMA.md §pois | COMPLETE |
+| 8 | Real, curated seed POI data (works with zero external credentials) | CLAUDE.md §3 (no fake data) | COMPLETE |
+| 9 | Backend auth/authorization — every endpoint behind verified JWT, no client-supplied identity trusted | CLAUDE.md §5/§8 | COMPLETE |
+| 10 | Backend tests — unit (provider client, service policy) + live integration | TESTING_PLAN.md | COMPLETE |
+| 11 | Backend code quality gates (ruff/black/mypy) | CLAUDE.md §10 | COMPLETE |
+| 12 | Mobile `ExploreScreen` — search, category filter, map/list toggle, loading/empty/error/success states | F6, MOBILE_ARCHITECTURE.md §8 | COMPLETE |
+| 13 | Mobile `PoiDetailScreen` — address/category/hours/cost, map, loading/error/retry | F6 | COMPLETE |
+| 14 | `react-native-maps` integration, Google provider | MOBILE_ARCHITECTURE.md §1/§8 | COMPLETE (code, bundles successfully) / **BLOCKED** (no Maps SDK key to visually verify real tile rendering on a device) |
+| 15 | Map-tile-load-failure → automatic list-view fallback (error boundary) | MOBILE_ARCHITECTURE.md §8 | COMPLETE (the JS-catchable failure class; see Known Limitations for the native-tile-failure gap this can't cover) |
+| 16 | Mobile navigation — `Explore`/`PoiDetail` reachable from `HomeScreen` | This phase's documented decision above | COMPLETE |
+| 17 | Mobile tests — component, state, API-client, navigation, loading/error states | TESTING_PLAN.md | COMPLETE |
+| 18 | Mobile type checking / lint / formatting | CLAUDE.md §10 | COMPLETE |
+| 19 | Cross-user isolation | CLAUDE.md §8 | COMPLETE — N/A-by-design: `pois` is shared reference data (RLS: any `authenticated` role may `SELECT`), not user-owned; no new isolation risk introduced. Existing `test_rls_security.py` (12/12) re-verified unchanged. |
+| 20 | Documentation (`DATABASE_SCHEMA.md` changelog, this section) | CLAUDE.md §6/§14 | COMPLETE |
+
+**Totals: 20 requirements — 17 COMPLETE, 0 PARTIAL, 3 BLOCKED (all three are the same single root cause: no real Google Maps Platform credential exists in this environment), 0 NOT IMPLEMENTED.**
+
+---
+
+## The Blocker (the only reason this phase is not COMPLETE)
+
+**No Google Maps Platform API key exists anywhere in this repository or environment** — confirmed by inspection before implementation began, and the user was asked how to proceed (this session's transcript) rather than the gap being assumed away. Per the user's explicit choice: implement everything real and classify the credential gap as BLOCKED, matching the precedent already set by Phase 3's Google OAuth blocker.
+
+Two distinct keys are needed, per `MOBILE_ARCHITECTURE.md` §8:
+1. **`GOOGLE_MAPS_API_KEY`** (backend, server-side, secret) — Places API (New) calls. Without it, `GET /v1/pois/search` degrades to cache/curated-only results (`meta.degraded_mode: true`) rather than failing — this degrade path is real, live-verified code, not a hypothetical.
+2. **`EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY`** (mobile, embedded, restricted by package name/bundle ID) — native Maps SDK tile rendering for `react-native-maps`. Without it, the native map view cannot render real tiles on a device/simulator; `MapErrorBoundary` covers JS-render failures but cannot catch a native-level tile failure (see Known Limitations).
+
+**What was validated without either key:** the entire backend contract (routing, auth, validation, the cache-first/live-augment policy, category mapping, provider-failure/timeout/malformed-response handling) is proven against a real Google Places client abstraction whose HTTP boundary is mocked in unit tests (`tests/test_google_places_client.py`) — the same standard practice this project already uses for the LLM Gateway pattern's own external-boundary tests. The full real database path (search, nearby, detail, degrade-on-missing-key) is proven live against the actual Supabase project with real PostGIS queries and real curated POI data (`tests/test_pois_api.py`, 12/12 passing). The mobile app bundles and runs with `react-native-maps` genuinely installed and wired (`npx expo export --platform android`, 1032 modules, real Hermes bytecode). What is **not** validated is a live call actually reaching Google's servers, and a human visually confirming map tiles render on a device — both require the missing credentials.
+
+**Manual step required (for the project owner), matching Phase 3's `AUTHENTICATION_SETUP.md` pattern:**
+1. Google Cloud Console → enable "Places API (New)" + billing → create a server-side key → set `GOOGLE_MAPS_API_KEY` in `backend/.env`.
+2. Google Cloud Console → create a Maps SDK key restricted by Android package name / iOS bundle ID → set `EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY` in `mobile/.env`.
+3. Re-run `tests/test_pois_api.py`'s degraded-mode test (it will need updating once a key exists — it currently asserts the real "no key" behavior) and visually verify map tiles on a device/simulator.
+
+---
+
+## Backend Implementation
+
+- **`backend/app/services/google_places_client.py`** — `GooglePlacesClient`, the sole call site for Google Maps Platform (mirrors the LLM Gateway abstraction pattern `AI_ARCHITECTURE.md` prescribes for AI providers, CLAUDE.md §7/§8). `search_text`, `search_nearby`, `get_place` against Places API (New); every failure (timeout, non-2xx, malformed JSON, unexpected shape) normalizes to one `PlacesProviderError` — never a raw httpx exception.
+- **`backend/app/services/poi_service.py`** — cache-first/live-augment search policy (documented in the module's own docstring), Google-type-to-category mapping (`_map_category`), and strict validation of every provider result before persistence (`_validate_and_map_google_place` — rejects missing name/id/location or out-of-range coordinates rather than persisting bad data, CLAUDE.md §8).
+- **`backend/app/repositories/pois_repository.py`** — real PostGIS queries (`ST_DWithin`, GiST-indexed `<->` nearest-first ordering) and an atomic `ON CONFLICT (external_ref) DO UPDATE` cache-write.
+- **`backend/app/api/v1/pois.py`** — `GET /search`, `GET /nearby`, `GET /{poi_id}`, all behind `get_current_user`.
+- **`backend/app/core/exceptions.py`** — new `pydantic.ValidationError` handler, a real gap found by this phase's own live tests: a `Depends()`-injected pydantic model's cross-field `model_validator` (here, "query or lat/lng required") raises a raw, unhandled `pydantic.ValidationError` through FastAPI's dependency-resolution path — a different code path from request-body validation, which FastAPI already converts automatically. Fixed centrally (any future `Depends()`-model endpoint benefits), not patched around in one route.
+- **`backend/app/db/session.py`** — added a jsonb ↔ Python dict/list codec on every pooled connection (`pois.opening_hours` is this project's first jsonb column; Phase 2's tables had none, so this was never needed before).
+
+## Database Implementation
+
+- **No schema drift.** `pois` (table, RLS, GiST index) already existed from Phase 2's `20260825120003_pois_and_heritage.sql`.
+- **New migration `20260825120017_pois_maps_navigation.sql`**, applied to and verified against the real Supabase project (`scripts/apply_migrations.py`, confirmed via a live query afterward — constraint existence, row count, and a real `ST_DWithin` search all checked against the actual database, not assumed from the SQL file):
+  - `pois.external_ref` gains a `unique` constraint (enables the atomic cache-upsert).
+  - 8 real, curated Indian heritage POIs seeded (Taj Mahal, Red Fort, India Gate, Gateway of India, Mysore Palace, Golden Temple, Hawa Mahal, Meenakshi Amman Temple) — genuine coordinates/addresses, `source='curated'`, same category of seed data as `interests` (Phase 2). `is_heritage_flagship` left at its schema default (`false`): curating the launch flagship set is F8's decision, not F6's.
+- Documented in `DATABASE_SCHEMA.md` §0c per CLAUDE.md §6.
+
+## API Implementation
+
+| Endpoint | Method | Status |
+|---|---|---|
+| `/v1/pois/search` | GET | COMPLETE — matches `API_SPECIFICATION.md` §5; `meta.degraded_mode`/`message` on live-search unavailability |
+| `/v1/pois/nearby` | GET | COMPLETE — DB-only, no live provider call by design (documented in `poi_service.py`) |
+| `/v1/pois/{poi_id}` | GET | COMPLETE |
+
+## AI Implementation
+
+**Not applicable to this phase.** F6's blueprint entry explicitly lists `AI component: None` — no AI functionality was implemented or claimed this phase, per the explicit instruction not to assume "Phase 5 = AI" and not to invent requirements outside scope.
+
+## Mobile Implementation
+
+- **`src/api/pois.ts`** — typed `searchPois`/`fetchNearbyPois`/`fetchPoi`, matching the backend envelope exactly.
+- **`src/screens/ExploreScreen.tsx`** — search input, category filter chips (reuses `SelectableChip` from Phase 4), map/list toggle, all four required states (loading/empty/error/success) plus a degraded-mode banner.
+- **`src/screens/PoiDetailScreen.tsx`** — address, category, opening hours (or "verify on arrival" when unknown, matching FR-007's established wording), cost, embedded map, loading/error/retry.
+- **`src/components/PoiCard.tsx`, `ProgressDots`-style shared visual language** — category icon, flagship badge, consistent with `MOBILE_ARCHITECTURE.md` §10.
+- **`src/components/MapErrorBoundary.tsx`** — the documented "map-tile-load-failure → list view" fallback, as a dedicated boundary (distinct from the app-wide generic `ErrorBoundary`) whose fallback IS the equivalent list content.
+- **Navigation**: `RootNavigator` gains `Explore`/`PoiDetail` routes under the authenticated+onboarded branch; `HomeScreen` gains a real "Explore places" entry card.
+- **`app.json` → `app.config.js`**: converted specifically to inject `EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY` into native `ios.config.googleMapsApiKey`/`android.config.googleMaps.apiKey` when present — a real, complete integration path waiting only on the credential (see Blocker above).
+- **`react-native-maps@1.27.2`** installed via `npx expo install` (SDK-57-compatible version resolved automatically).
+
+## UI/UX Implementation
+
+Category-icon POI cards, a flagship badge for curated highlights, an India-wide default map framing appropriate to this product's launch region, a tasteful amber degraded-mode banner (not an alarming error state, since results are still real), and consistent use of the existing design tokens (`colors`/`spacing`/`radius`/`typography`) established in Phase 1. Map/list toggle is a single tap, not a buried setting.
+
+## External Integrations
+
+| Integration | Status |
+|---|---|
+| Google Places API (New) | COMPLETE (code) / **BLOCKED** (no server-side key configured in this environment) |
+| Google Maps SDK (tile rendering) | COMPLETE (code) / **BLOCKED** (no client-side key configured) |
+| Supabase PostgreSQL/PostGIS | COMPLETE — real geospatial queries, live-verified |
+
+## Authentication / Authorization
+
+Every `/v1/pois/*` endpoint requires the same verified-JWT `get_current_user` dependency as every other endpoint in this project (Phase 3's JWKS/ES256 verification, unchanged). No client-supplied identity is trusted anywhere in this feature — `pois` being shared, non-user-owned data means there is no ownership check to perform, only the existing authentication gate, live-verified (401 without a token, 12/12 passing).
+
+## Security Validation
+
+- No secrets introduced or leaked: repository-wide scan for JWT-shaped literals, Google-API-key-shaped literals (`AIza...`), Postgres DSNs, and tracked `.env` files — clean (one pre-existing false-positive grep hit in this file's own Phase 3 prose describing the scan process itself, not a real secret).
+- `GOOGLE_MAPS_API_KEY` is `SecretStr`, backend-only, never sent to the mobile client.
+- `EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY` is, by design, a restricted-not-secret key (same threat model as the Supabase anon key already in this codebase) — confirmed it never appears alongside the backend key in any client-reachable file.
+- No new RLS weakening; `pois_read_all`/admin-write policies untouched.
+
+## Test Results
+
+All commands below were actually executed this session; raw output is in this session's transcript, not assumed.
+
+| Suite | Result |
+|---|---|
+| `pytest -v` (backend, no live credentials) | **69 passed, 66 skipped** (skips are live-only suites, by design) — 25 of the 69 are new this phase (`test_google_places_client.py`, `test_poi_service.py`) |
+| `python scripts/run_live_tests.py tests/test_pois_api.py tests/test_onboarding_api.py tests/test_live_database.py tests/test_rls_security.py tests/test_auth_api.py -v` (real Supabase project) | **66 passed, 0 failed** — 12 pois (new) + 10 onboarding + 26 database + 12 RLS + 6 auth-API, zero regressions across Phases 1–4 |
+| `ruff check .` / `black --check .` / `mypy app` (backend) | **COMPLETE — all clean** |
+| `npx jest --verbose` (mobile) | **COMPLETE — 57 passed, 0 failed, 11/11 suites green** — 21 of the 57 are new this phase (`pois.test.ts`, `ExploreScreen.test.tsx`, `PoiDetailScreen.test.tsx`, `MapErrorBoundary.test.tsx`) |
+| `npx tsc --noEmit` (mobile) | **COMPLETE — 0 errors** |
+| `npx expo lint` (mobile) | **COMPLETE — 0 errors, 0 warnings** |
+| `npx expo export --platform android` (mobile) | **COMPLETE — 1032 modules bundled into a real Hermes bytecode bundle**, proving `react-native-maps` and every new screen genuinely compile together, not just typecheck in isolation |
+
+### Real bugs found and fixed during this phase's own validation (not hidden, not worked around)
+
+1. **`id` returned as `uuid.UUID`, not `str`** — `PoiResponse.id: str` failed Pydantic validation against a live database row. Fixed in `poi_service._to_row_dict`.
+2. **A `Depends()`-injected pydantic model's cross-field validator raised an unhandled 500**, not FastAPI's own 400 — `PoiSearchQuery` was being constructed manually inside the route handler body instead of via `Depends()`, and even after switching to `Depends()`, the resulting raw `pydantic.ValidationError` had no registered handler. Fixed by (a) actually using `Depends()` and (b) adding a project-wide `pydantic.ValidationError` handler to `app/core/exceptions.py` — found only by this phase's own live API tests, not assumed correct from code review.
+3. **`react-native-safe-area-context`'s mock interop bug from Phase 4 was NOT the only such issue** — `react-native-maps` has no built-in Jest mock at all; a manual mock (`mobile/__mocks__/react-native-maps.js`) was added following the same pattern.
+4. **`FlatList`/`VirtualizedList`'s internal cell-render timer corrupted this environment's React act-tracking across tests** — the first screen in this codebase to use `FlatList`. Root-caused via isolated reproduction (not guessed): a synchronous, non-awaited event-handler chain (`onSubmitEditing` → `void runSearch(...)`) left async `setLoadState` calls outside any `act()` scope. Fixed in the TEST file (`await act(async () => {...})`, split into two separate flush cycles so `changeText`'s state update actually lands before `submitEditing` reads it — a genuine test-helper bug, not an app bug, that would otherwise have silently left every interaction test stuck on the idle state).
+5. **`react-hooks/set-state-in-effect` lint violations** in both new screens (`ExploreScreen`'s category-change effect, `PoiDetailScreen`'s load-on-mount effect) — fixed using the same resolver/effect split this codebase already established correctly in Phase 4's `InterestSelectScreen.tsx`.
+6. **Adding `useNavigation()` to `HomeScreen.tsx` broke its existing test suite** (no navigation mock existed there) — a real regression, caught by re-running the full suite, fixed by adding the same navigation mock pattern already used elsewhere in this codebase.
+
+---
+
+## Known Limitations
+
+- **No physical device/simulator was available to visually verify real map tile rendering** — consistent with the same limitation already recorded in Phase 3 for `expo-secure-store`'s native Keychain/Keystore behavior. `react-native-maps` is genuinely installed, wired, and bundles successfully; only the on-device visual confirmation is outstanding, and it is gated on the same missing Maps SDK key as the rest of this blocker.
+- **`MapErrorBoundary` cannot catch a native-level tile-rendering failure** (e.g. an invalid/missing Maps SDK key) — React error boundaries only catch JS render-time exceptions; a native map failing to draw tiles typically fails silently at the native layer with no JS-visible signal. The JS-catchable failure class (a malformed prop, a missing native module) is covered and tested (`MapErrorBoundary.test.tsx`); the native-tile class is not, and cannot be from JavaScript alone.
+- **`GET /pois/{poi_id}` does not refresh stale `places_api`-sourced rows from Google** — only the initial cache-write happens; a live "refresh this cached POI" path was not built (out of scope; not needed until a real key exists and staleness becomes an actual concern).
+- Same pre-existing `npm audit` advisory count as every prior phase (10 moderate, Expo tooling's transitive `uuid` CVE) — `react-native-maps`'s installation added 2 packages and did not change this count.
+
+## Blocked Items
+
+1. **Google Maps Platform credentials** (server-side `GOOGLE_MAPS_API_KEY` + client-side `EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY`) — external, manual, requires a Google Cloud Console project with billing enabled. See "The Blocker" above for exact steps. This is the **only** blocked item in Phase 5.
+
+**Carried forward, unrelated to Phase 5:** Google OAuth dashboard configuration (Phase 3) remains outstanding — unrelated to and not blocking this phase, tracked there.
+
+## Unresolved Issues
+
+- `ARCHITECTURE_REVIEW.md` H3 (Redis/caching/rate-limiting) — still open; F6 has no AI/cost-bearing calls, so still not yet load-bearing, same as Phase 4's assessment.
+- Google OAuth dashboard configuration (Phase 3) — still open, tracked there.
+- Google Maps Platform credentials (this phase) — open, tracked above.
+
+---
+
+## Environment Variables Required
+
+**Backend** (new this phase): `GOOGLE_MAPS_API_KEY` — optional; absence degrades gracefully rather than failing.
+
+**Mobile** (new this phase): `EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY` — optional; absence means native map tiles won't render (falls back to list view via `MapErrorBoundary` for the JS-catchable failure class).
+
+No existing environment variable was removed or renamed.
+
+---
+
+## Files Created
+
+**Backend:** `app/services/google_places_client.py`, `app/services/poi_service.py`, `app/repositories/pois_repository.py`, `app/schemas/poi.py`, `app/api/v1/pois.py`, `tests/test_google_places_client.py`, `tests/test_poi_service.py`, `tests/test_pois_api.py`, `supabase/migrations/20260825120017_pois_maps_navigation.sql`.
+
+**Mobile:** `src/api/pois.ts`, `src/api/__tests__/pois.test.ts`, `src/components/PoiCard.tsx`, `src/components/MapErrorBoundary.tsx`, `src/components/__tests__/MapErrorBoundary.test.tsx`, `src/screens/ExploreScreen.tsx`, `src/screens/PoiDetailScreen.tsx`, `src/screens/__tests__/ExploreScreen.test.tsx`, `src/screens/__tests__/PoiDetailScreen.test.tsx`, `__mocks__/react-native-maps.js`, `app.config.js` (replaces `app.json`).
+
+## Files Modified
+
+**Backend:** `app/api/v1/router.py` (mounts the pois router), `app/core/config.py` (adds `google_maps_api_key`), `app/core/exceptions.py` (adds the `pydantic.ValidationError` handler), `app/db/session.py` (adds the jsonb codec), `app/schemas/common.py` (adds `Meta.degraded_mode`/`Meta.message`), `.env.example` (adds `GOOGLE_MAPS_API_KEY`).
+
+**Mobile:** `package.json`/`package-lock.json` (adds `react-native-maps`), `.env.example` (adds `EXPO_PUBLIC_GOOGLE_MAPS_SDK_KEY`), `src/navigation/RootNavigator.tsx` (adds `Explore`/`PoiDetail` routes), `src/screens/HomeScreen.tsx` (adds the Explore entry card + its own navigation mock fix), `src/screens/__tests__/HomeScreen.test.tsx` (regression fix — added the navigation mock this phase's `HomeScreen` change required).
+
+**Docs:** `docs/DATABASE_SCHEMA.md` (§0c changelog entry), this file.
+
+---
+
+## Definition of Done — checked against CLAUDE.md §14 / this authorization's §21
+
+Every checklist item in this authorization's §21 is satisfied **except** the ones that depend on the missing Google Maps credential: "required AI functionality actually works" is N/A (no AI in this phase's scope), and the live-provider/on-device-tile items are explicitly the open blocker, not silently skipped. Every other item — backend, database, RLS, mobile UI/states/navigation, all test suites, typecheck, lint, formatting, all four prior phases' regression suites, security validation, no committed secrets, documentation, traceability — is genuinely satisfied and verified above, not assumed.
+
+---
+
+## STOP
+
+Phase 5 (F6 — Maps & Navigation) is code-complete, live-verified against the real Supabase project, and documented. It is classified **PARTIAL**, not COMPLETE, solely because Google Maps Platform credentials do not exist in this environment — an external, manual dependency, not an implementation gap, per CLAUDE.md §3's explicit guidance to implement the most complete legitimate integration possible and document the remaining dependency rather than simulate success. Per CLAUDE.md §12 and this authorization's explicit instruction, Phase 6 has not been started — no itinerary generation, no AI conversational planner, no trip creation, nothing beyond F6's own scope. Waiting for (1) the Google Maps Platform credentials to be provisioned so this phase's blocked items can be live-verified and certified COMPLETE, and (2) explicit authorization to begin Phase 6 thereafter.

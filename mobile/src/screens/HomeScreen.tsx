@@ -1,5 +1,8 @@
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 
 import { bootstrapSession, fetchMyProfile, ProfileData } from "../api/auth";
@@ -8,7 +11,8 @@ import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { LoadingView } from "../components/LoadingView";
-import { colors, spacing, typography } from "../theme/tokens";
+import type { RootStackParamList } from "../navigation/RootNavigator";
+import { colors, radius, spacing, typography } from "../theme/tokens";
 
 type ProfileLoadState =
   | { status: "loading" }
@@ -25,6 +29,7 @@ type ProfileLoadState =
  * Deliberately not a product screen — no trips, no AI, no maps (Phase 4+).
  */
 export function HomeScreen(): React.JSX.Element {
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, "Home">>();
   const { user, signOut } = useAuth();
   const [profileState, setProfileState] = useState<ProfileLoadState>({ status: "loading" });
   const [signingOut, setSigningOut] = useState(false);
@@ -88,6 +93,22 @@ export function HomeScreen(): React.JSX.Element {
         )}
       </Card>
 
+      <Pressable
+        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
+        onPress={() => navigation.navigate("Explore")}
+        accessibilityRole="button"
+        testID="explore-places-button"
+      >
+        <View style={styles.exploreIconBadge}>
+          <Ionicons name="map-outline" size={24} color={colors.primaryText} />
+        </View>
+        <View style={styles.exploreTextGroup}>
+          <Text style={styles.exploreTitle}>Explore places</Text>
+          <Text style={styles.exploreSubtitle}>Search heritage sites, food, and more nearby</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </Pressable>
+
       <View style={styles.signOutButton}>
         <Button
           label={signingOut ? "Signing out…" : "Sign out"}
@@ -114,5 +135,27 @@ const styles = StyleSheet.create({
   errorText: { ...typography.subtitle, color: colors.error },
   detail: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
   retryButton: { marginTop: spacing.md, alignSelf: "flex-start" },
+  exploreCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    padding: spacing.md,
+  },
+  exploreCardPressed: { opacity: 0.85 },
+  exploreIconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  exploreTextGroup: { flex: 1, gap: 2 },
+  exploreTitle: { ...typography.subtitle, color: colors.text },
+  exploreSubtitle: { ...typography.caption, color: colors.textMuted },
   signOutButton: { alignSelf: "flex-start", marginTop: spacing.sm },
 });

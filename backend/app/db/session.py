@@ -25,6 +25,7 @@ second, independent safeguard, not a redundant one.
 
 from __future__ import annotations
 
+import json
 import logging
 from enum import StrEnum
 
@@ -35,6 +36,17 @@ from app.core.config import get_settings
 logger = logging.getLogger("app.db")
 
 _pool: asyncpg.Pool | None = None
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Registers a jsonb <-> Python dict/list codec on every pooled
+    connection. asyncpg does not do this by default (jsonb round-trips as
+    raw text otherwise) — needed starting with F6's `pois.opening_hours`
+    column (Phase 2's `profiles`/`interests` tables had no jsonb columns,
+    so this was never required before)."""
+    await conn.set_type_codec(
+        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog", format="text"
+    )
 
 
 class DbStatus(StrEnum):
@@ -66,6 +78,7 @@ async def create_pool() -> asyncpg.Pool | None:
             max_size=5,
             timeout=5,
             command_timeout=10,
+            init=_init_connection,
         )
         logger.info("db_pool_created")
         return _pool

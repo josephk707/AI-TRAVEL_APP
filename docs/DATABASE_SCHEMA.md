@@ -47,6 +47,13 @@ Every deviation from this document's originally-drafted SQL, found and fixed dur
 |---|---|---|
 | **RLS infinite recursion within `profiles` itself**: `profiles_select_own`'s admin-check branch queried `public.profiles` directly from inside its own `USING` clause — evaluating that subquery re-invokes the same policy on the same table, an unbounded cycle Postgres detects as `InvalidObjectDefinitionError`. This broke **every** `select` against `profiles` under a real `authenticated` role, not just the admin path — same failure class as the Phase 2 `trips`/`trip_members` recursion, this time self-referential within one table rather than across two. | Added `public.is_admin(uuid)`, a `SECURITY DEFINER` helper (exempt from RLS via function-owner privilege, identical pattern to `is_trip_member()`); `profiles_select_own` rewritten to call it instead of the raw subquery | `20260825120016` |
 
+### 0c. Phase 5 (F6 Maps & Navigation) Implementation Changelog
+
+| Change | Detail | Migration |
+|---|---|---|
+| `pois.external_ref` — added `unique` constraint | Needed for `ON CONFLICT (external_ref) DO UPDATE` in the backend's Google-Places-cache upsert (`app/repositories/pois_repository.py`) to be atomic/race-safe. Curated rows (`external_ref IS NULL`) are unaffected — Postgres `UNIQUE` permits any number of `NULL`s. | `20260825120017` |
+| `pois` — seeded 8 real, curated Indian heritage POIs (Taj Mahal, Red Fort, India Gate, Gateway of India, Mysore Palace, Golden Temple, Hawa Mahal, Meenakshi Amman Temple) | Reference/seed data (genuine coordinates and addresses, `source='curated'`), same category of seed as `interests` (Phase 2) — lets F6's search/nearby/detail endpoints return real data with no Google Maps API key configured. `is_heritage_flagship` deliberately left at its default (`false`): curating the launch flagship narration set is F8's decision, not F6's. | `20260825120017` |
+
 ---
 
 ## 1. Extensions

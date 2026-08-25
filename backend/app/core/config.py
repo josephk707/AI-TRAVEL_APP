@@ -78,6 +78,16 @@ class Settings(BaseSettings):
     # token, so this project intentionally has no SUPABASE_JWT_SECRET
     # setting.
 
+    # --- Maps & Navigation (F6) ---
+    # Server-side Google Maps Platform key (Places API "New" enabled) used
+    # exclusively by app/services/google_places_client.py — never sent to
+    # the mobile client (API_SPECIFICATION.md §5, MOBILE_ARCHITECTURE.md
+    # §8). SecretStr: a real, billable, abusable credential. When unset,
+    # POI search degrades to cache/curated-only results rather than
+    # failing (app/services/poi_service.py) — there is no environment in
+    # which this being absent should crash the API.
+    google_maps_api_key: SecretStr | None = Field(default=None)
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, onboarding
+from app.api.v1 import auth, onboarding, pois
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(auth.router)
 api_v1_router.include_router(onboarding.router)
+api_v1_router.include_router(pois.router)
