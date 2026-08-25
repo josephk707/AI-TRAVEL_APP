@@ -1,15 +1,18 @@
 /**
  * API client foundation (MOBILE_ARCHITECTURE.md §9).
  *
- * Phase 1: a thin, typed fetch wrapper only. No auth token injection yet
- * (there is no auth — Phase 3) and no generated OpenAPI client yet (there
- * is no versioned product API surface to generate from — Phase 4+). This
- * establishes the single call path every later API call goes through, so
- * auth-header injection and retry logic have one place to be added later
- * instead of being bolted onto scattered fetch() calls.
+ * A thin, typed fetch wrapper. Phase 3 adds authenticated requests: every
+ * call reads the CURRENT Supabase session fresh (via supabase.auth.
+ * getSession(), which itself awaits any in-flight token refresh) rather
+ * than caching a token — there is no window where a stale, already-
+ * refreshed-away token gets sent. No generated OpenAPI client yet (no
+ * versioned product API surface exists to generate from beyond auth —
+ * Phase 4+).
  */
 
 import { env } from "../config/env";
+import { notifyUnauthorized } from "./authBridge";
+import { supabase } from "../lib/supabase";
 
 export class ApiError extends Error {
   readonly status: number;
@@ -38,26 +41,56 @@ function isErrorEnvelope(value: unknown): value is ErrorEnvelope {
   );
 }
 
-export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function authHeader(): Promise<Record<string, string>> {
+  // Never logged — this function's return value must never appear in a
+  // console.log/error call anywhere in the app (CLAUDE.md §4).
+  const { data } = await supabase.auth.getSession();
+  return data.session ? { Authorization: `Bearer ${data.session.access_token}` } : {};
+}
+
+async function request<T>(
+  method: "GET" | "POST",
+  path: string,
+  options: { signal?: AbortSignal; body?: unknown } = {},
+): Promise<T> {
   const url = `${env.apiBaseUrl}${path}`;
+  const auth = await authHeader();
   let response: Response;
 
   try {
     response = await fetch(url, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal,
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...auth,
+      },
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
     });
   } catch (cause) {
     // Network-level failure (no connectivity, DNS, backend down) —
     // never swallowed, always surfaced as a typed error the caller
     // can render an error state for (CLAUDE.md §9).
-    throw new ApiError(0, "Network request failed. Is the backend reachable?", "NETWORK_ERROR", cause);
+    throw new ApiError(
+      0,
+      "Network request failed. Is the backend reachable?",
+      "NETWORK_ERROR",
+      cause,
+    );
   }
 
   const body: unknown = await response.json().catch(() => undefined);
 
   if (!response.ok) {
+    if (response.status === 401 && "Authorization" in auth) {
+      // The token we sent was rejected by the backend even though our
+      // local SDK still considered it valid (revoked/rotated server-side,
+      // not just expired) — hand off to the auth layer rather than
+      // leaving the app silently stuck making requests that will never
+      // succeed.
+      notifyUnauthorized();
+    }
     if (isErrorEnvelope(body)) {
       throw new ApiError(response.status, body.error.message, body.error.code, body.error.details);
     }
@@ -65,4 +98,12 @@ export async function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> 
   }
 
   return body as T;
+}
+
+export function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return request<T>("GET", path, { signal });
+}
+
+export function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>("POST", path, { body: body ?? {}, signal });
 }

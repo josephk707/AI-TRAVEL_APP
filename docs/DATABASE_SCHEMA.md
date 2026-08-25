@@ -3,6 +3,50 @@
 
 Companion to `IMPLEMENTATION_BLUEPRINT.md`. Table names here are the single source of truth referenced by `API_SPECIFICATION.md` and `AI_ARCHITECTURE.md`.
 
+**Status: implemented and applied to a real Supabase project (Phase 2, Database & Data Layer; extended in Phase 3, Authentication).** The executable source of truth is now `supabase/migrations/*.sql`, not the SQL reproduced in this document — this document is kept in sync with those migrations, but if the two ever disagree, the migrations are authoritative (they're what's actually running). Verified live via `backend/tests/test_live_database.py` (26 tests, schema/RLS/extensions/indexes/storage/vector/geospatial) and `backend/tests/test_rls_security.py` (12 tests, real cross-user Row Level Security checks against ephemeral Supabase Auth users — including Phase 3's `profiles` isolation tests).
+
+---
+
+## 0. Phase 2 Implementation Changelog
+
+Every deviation from this document's originally-drafted SQL, found and fixed during real implementation (not merely planned) — each is a real migration in `supabase/migrations/`, applied to and verified against a live database, per `docs/PHASE_STATUS.md`'s Phase 2 section for full detail.
+
+**Fixes carried over from `docs/ARCHITECTURE_REVIEW.md`** (planned there, actually implemented here):
+
+| ID | Fix | Migration |
+|---|---|---|
+| C1 | Added `profiles.pace` column (FR-003 required input, previously missing entirely) | `20260825120002` |
+| C2 | `audit_logs.actor_user_id` → `on delete set null` (was unspecified; blocked the account-deletion workflow) | `20260825120010` |
+| M2 | Explicit `ON DELETE` behavior added to 6 previously-unspecified FKs (`itinerary_items.poi_id`→SET NULL, `quick_plan_items.poi_id`→CASCADE, `reviews.trip_id`→CASCADE, `sos_events.trip_id`→CASCADE, `profile_interests.interest_id`→CASCADE, `reviews.moderated_by`→SET NULL) | `20260825120004`, `20260825120005`, `20260825120007`, `20260825120009` |
+| M8 | `ai_messages.conversation_id` made nullable + new `context_type` discriminator (`chat`\|`photo_qa`), resolving a genuine conflict between this document (NOT NULL) and `AI_ARCHITECTURE.md` §6 (Visual Q&A is a non-conversational endpoint) | `20260825120008` |
+| H6 | `memory_items`, `budget_expenses`, `trip_raw_notes` RLS split from one permissive `for all` policy into shared SELECT (any trip member) + author-or-trip-owner-only INSERT/UPDATE/DELETE — previously any group-trip member could delete another member's uploaded photos | `20260825120004`, `20260825120005`, `20260825120006` |
+| — | `trip_raw_notes` gained a `created_by` column — the H6 fix requires per-author tracking, which this table didn't have at all | `20260825120004` |
+| L9 | `heritage_content_embeddings` — removed the client-facing SELECT policy entirely (service-role-only now) | `20260825120003` |
+| L11 | Added admin UPDATE/DELETE RLS policies for `pois` and `heritage_content` (previously INSERT-only) | `20260825120003` |
+| H1 | Resolved in favor of trigger-based profile provisioning — `handle_new_user()` + `on_auth_user_created` trigger on `auth.users` is now real, not just documented intent | `20260825120002` |
+
+**New defects found only by live testing** (neither in the original draft nor in `ARCHITECTURE_REVIEW.md` — static review could not have caught either):
+
+| Finding | Fix | Migration |
+|---|---|---|
+| `interests` was created with **no RLS enabled at all** (a genuine oversight — every other table had it) | `alter table ... enable row level security` + a public-read policy, matching the `pois`/`phrasebook_entries` pattern | `20260825120014` |
+| **RLS infinite recursion** between `trips` and `trip_members`: `trips_select_member`'s policy queried `trip_members` directly, whose own policy queried `trips` directly — Postgres detects this as unbounded recursion (`InvalidObjectDefinitionError`) and it broke **every** query against either table under a real (non-owner) role, not an edge case | `trips_select_member` rewritten to call `is_trip_member()` (a `SECURITY DEFINER` function, which Postgres exempts from RLS via table-owner privilege) instead of a raw subquery — the standard, documented pattern for this exact class of cross-table RLS cycle | `20260825120015` |
+
+**New, additive (not fixes — genuinely new ground covered this phase, per this phase's own scope):**
+- `supabase.storage.buckets`/`storage.objects` — the `memory-items` private bucket + 4 RLS policies (§7 below), mirroring the H6 fix's shared-read/author-write split at the storage layer too (not just the `memory_items` table) — see §17.
+- `public.memory_items_due_for_reminder()` / `public.location_pings_due_for_purge()` — retention-contract functions, `service_role`-only execute grant (§18 below).
+- `public._migrations_applied` — a bookkeeping table (filename, applied_at) tracking which migration files have run, since migrations are applied directly via `asyncpg` rather than through the Supabase CLI's own tracking (see §19, Migration Tooling Decision).
+
+**Migration path decision:** migrations live in `supabase/migrations/` (matching `DEPLOYMENT_PLAN.md` §3.2, which already specified this path), not the `database/` folder Phase 1 reserved — `database/` remains available for non-migration database tooling (seed/verification scripts). This is stated explicitly per this phase's "identify the conflict, document the resolution" instruction.
+
+### 0b. Phase 3 Implementation Changelog
+
+**New defect found only by live testing** (Phase 3's own cross-user `profiles` RLS tests, added because no `/v1/auth/*` endpoint addresses another user's profile by id, so this table's RLS had never actually been exercised cross-user before):
+
+| Finding | Fix | Migration |
+|---|---|---|
+| **RLS infinite recursion within `profiles` itself**: `profiles_select_own`'s admin-check branch queried `public.profiles` directly from inside its own `USING` clause — evaluating that subquery re-invokes the same policy on the same table, an unbounded cycle Postgres detects as `InvalidObjectDefinitionError`. This broke **every** `select` against `profiles` under a real `authenticated` role, not just the admin path — same failure class as the Phase 2 `trips`/`trip_members` recursion, this time self-referential within one table rather than across two. | Added `public.is_admin(uuid)`, a `SECURITY DEFINER` helper (exempt from RLS via function-owner privilege, identical pattern to `is_trip_member()`); `profiles_select_own` rewritten to call it instead of the raw subquery | `20260825120016` |
+
 ---
 
 ## 1. Extensions
@@ -39,6 +83,7 @@ create table public.profiles (
   avatar_url         text,
   home_region        text,               -- seeds default local-language phrasebook (FR-009)
   travel_style       text,               -- e.g. 'relaxed' | 'packed' | 'balanced' (onboarding, FR-003)
+  pace               text check (pace in ('relaxed','balanced','packed')),  -- FR-003 input; fixes C1
   budget_bracket     text,               -- e.g. 'budget' | 'mid' | 'premium'
   role               text not null default 'traveller' check (role in ('traveller','admin')),
   onboarding_completed_at timestamptz,
@@ -47,10 +92,31 @@ create table public.profiles (
 );
 alter table public.profiles enable row level security;
 
+-- Uses is_admin() (SECURITY DEFINER, defined below), NOT a raw subquery
+-- against public.profiles — the raw form caused real infinite RLS
+-- recursion (fixed in migration 20260825120016; see the Phase 3
+-- Implementation Changelog at the top of this document, §0b).
+create function public.is_admin(check_user_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.profiles where id = check_user_id and role = 'admin');
+$$;
+
 create policy "profiles_select_own" on public.profiles
-  for select using (auth.uid() = id or exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin'));
+  for select using (auth.uid() = id or public.is_admin(auth.uid()));
 create policy "profiles_update_own" on public.profiles
   for update using (auth.uid() = id);
+
+-- H1 resolution: the trigger is real, not just documented intent.
+create function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id) values (new.id) on conflict (id) do nothing;
+  return new;
+end;
+$$;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
 ```
 
 ### `interests` / `profile_interests`
@@ -62,10 +128,15 @@ create table public.interests (
   slug   text unique not null,           -- 'heritage', 'food', 'nightlife', 'nature', ...
   label  text not null
 );
+-- Found missing entirely by live testing (no RLS at all — a genuine
+-- oversight, not present in the original draft or ARCHITECTURE_REVIEW.md):
+alter table public.interests enable row level security;
+create policy "interests_read_all" on public.interests
+  for select using (auth.role() = 'authenticated');
 
 create table public.profile_interests (
   profile_id  uuid not null references public.profiles(id) on delete cascade,
-  interest_id smallint not null references public.interests(id),
+  interest_id smallint not null references public.interests(id) on delete cascade,  -- fixes M2
   weight      numeric not null default 1.0,   -- adjusted over time by the Personalization Engine
   source      text not null default 'onboarding' check (source in ('onboarding','inferred','explicit_feedback')),
   updated_at  timestamptz not null default now(),
@@ -107,10 +178,20 @@ create index trips_owner_idx on public.trips(owner_id) where deleted_at is null;
 create index trips_status_idx on public.trips(status);
 alter table public.trips enable row level security;
 
+-- Uses is_trip_member() (defined below in this section), NOT a raw subquery
+-- into trip_members — a raw subquery here caused a real, live-tested bug:
+-- trip_members' own SELECT policy queries trips directly, so trips querying
+-- trip_members and trip_members querying trips forms an infinite RLS
+-- recursion cycle that Postgres detects and rejects for EVERY query
+-- against either table (InvalidObjectDefinitionError), not an edge case.
+-- is_trip_member() is SECURITY DEFINER and owned by the table owner, which
+-- Postgres exempts from RLS by default — its internal queries terminate
+-- immediately instead of re-entering either policy. Found and fixed live;
+-- see the Phase 2 Implementation Changelog at the top of this document.
 create policy "trips_select_member" on public.trips
   for select using (
     auth.uid() = owner_id
-    or exists (select 1 from public.trip_members m where m.trip_id = trips.id and m.user_id = auth.uid())
+    or public.is_trip_member(id)
   );
 create policy "trips_write_owner" on public.trips
   for all using (auth.uid() = owner_id);
@@ -158,10 +239,13 @@ create policy "trip_preferences_own_or_organiser" on public.trip_preferences
 
 ### `trip_raw_notes` (FR-005 — user-provided trip ideas)
 
+`created_by` was added to make the H6 fix below possible — the original draft had no author-tracking column at all, so a correct per-author RLS policy couldn't be written until this was added.
+
 ```sql
 create table public.trip_raw_notes (
   id                  uuid primary key default gen_random_uuid(),
   trip_id             uuid not null references public.trips(id) on delete cascade,
+  created_by          uuid references public.profiles(id) on delete set null,  -- added for the H6 fix
   raw_text            text not null,
   extracted_places    jsonb,             -- structured elements pulled out by the Idea Extraction step
   unparsed_remainder  text,              -- always preserved and shown back to the user (FR-005 business rule)
@@ -169,11 +253,25 @@ create table public.trip_raw_notes (
   created_at          timestamptz not null default now()
 );
 alter table public.trip_raw_notes enable row level security;
-create policy "trip_raw_notes_member" on public.trip_raw_notes
-  for all using (exists (
-    select 1 from public.trips t where t.id = trip_id
-    and (t.owner_id = auth.uid() or exists (select 1 from public.trip_members m where m.trip_id = t.id and m.user_id = auth.uid()))
-  ));
+
+-- H6 fix: shared viewing for any trip member (as before), but mutation
+-- restricted to the author or the trip owner — was previously one
+-- permissive "for all" policy granting any member full CRUD, including
+-- deleting another member's notes.
+create policy "trip_raw_notes_select" on public.trip_raw_notes
+  for select using (public.is_trip_member(trip_id));
+create policy "trip_raw_notes_insert" on public.trip_raw_notes
+  for insert with check (public.is_trip_member(trip_id) and (created_by = auth.uid() or created_by is null));
+create policy "trip_raw_notes_update_delete_author_or_owner" on public.trip_raw_notes
+  for update using (
+    created_by = auth.uid()
+    or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
+create policy "trip_raw_notes_delete_author_or_owner" on public.trip_raw_notes
+  for delete using (
+    created_by = auth.uid()
+    or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
 ```
 
 ### `itinerary_days` / `itinerary_items`
@@ -191,7 +289,7 @@ create table public.itinerary_items (
   id                uuid primary key default gen_random_uuid(),
   trip_id           uuid not null references public.trips(id) on delete cascade,
   day_id            uuid not null references public.itinerary_days(id) on delete cascade,
-  poi_id            uuid references public.pois(id),
+  poi_id            uuid references public.pois(id) on delete set null,  -- fixes M2
   sequence_order    smallint not null,
   planned_start     time,
   planned_end       time,
@@ -262,6 +360,13 @@ create policy "pois_read_all" on public.pois for select using (auth.role() = 'au
 create policy "pois_write_admin" on public.pois for insert with check (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
 );
+-- fixes L11 (was INSERT-only):
+create policy "pois_update_admin" on public.pois for update using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+);
+create policy "pois_delete_admin" on public.pois for delete using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+);
 ```
 
 ### `heritage_content`
@@ -290,6 +395,13 @@ create policy "heritage_content_read_published" on public.heritage_content
 create policy "heritage_content_write_admin" on public.heritage_content for insert with check (
   exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
 );
+-- fixes L11 (was INSERT-only):
+create policy "heritage_content_update_admin" on public.heritage_content for update using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+);
+create policy "heritage_content_delete_admin" on public.heritage_content for delete using (
+  exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'admin')
+);
 ```
 
 ### `heritage_content_embeddings`
@@ -307,8 +419,11 @@ create table public.heritage_content_embeddings (
 create index heritage_embeddings_ivfflat on public.heritage_content_embeddings
   using ivfflat (embedding vector_cosine_ops) with (lists = 100);
 alter table public.heritage_content_embeddings enable row level security;
-create policy "heritage_embeddings_read" on public.heritage_content_embeddings
-  for select using (auth.role() = 'authenticated');
+-- fixes L9: NO client-facing policy at all (was previously readable by any
+-- authenticated user — bypassed the narration API's layer/section gating
+-- and confidence-flagging entirely). Default-deny for anon/authenticated;
+-- only the service-role key reads this table, via the backend's RAG
+-- retrieval step.
 ```
 
 `lists = 100` is a reasonable starting value for a low-thousands-of-rows corpus (5–10 flagship POIs at launch); revisit per pgvector's tuning guidance once the catalog scales (F24).
@@ -356,7 +471,25 @@ create table public.memory_items (
 create index memory_items_trip_idx on public.memory_items(trip_id);
 create index memory_items_expiry_idx on public.memory_items(retention_expires_at) where deleted_at is null;
 alter table public.memory_items enable row level security;
-create policy "memory_items_member" on public.memory_items for all using (public.is_trip_member(trip_id));
+
+-- fixes H6: split from one permissive "for all" policy (which let any
+-- group-trip member delete another member's photos — a real defect, since
+-- §43.3 promises memory-box items are never surprise-deleted) into shared
+-- SELECT + author-or-trip-owner-only mutation.
+create policy "memory_items_select_member" on public.memory_items
+  for select using (public.is_trip_member(trip_id));
+create policy "memory_items_insert_own" on public.memory_items
+  for insert with check (public.is_trip_member(trip_id) and user_id = auth.uid());
+create policy "memory_items_update_author_or_owner" on public.memory_items
+  for update using (
+    user_id = auth.uid()
+    or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
+create policy "memory_items_delete_author_or_owner" on public.memory_items
+  for delete using (
+    user_id = auth.uid()
+    or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
 ```
 
 **Retention job contract (critical business rule, §43.3):** a scheduled job selects rows where `retention_expires_at - now() < interval '14 days'` and `expiry_reminder_sent_at is null`, sends a reminder notification with a one-tap download/extend action, and stamps `expiry_reminder_sent_at`. **No automated job ever sets `deleted_at`.** Deletion after expiry (if the user takes no action) is a deliberate product decision to be made with explicit legal/policy sign-off, not a default background behavior — see `DEPLOYMENT_PLAN.md` §Scheduled Jobs.
@@ -402,11 +535,11 @@ create table public.reviews (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references public.profiles(id) on delete cascade,
   poi_id        uuid not null references public.pois(id) on delete cascade,
-  trip_id       uuid not null references public.trips(id),   -- proves a completed visit (FR-013 business rule)
+  trip_id       uuid not null references public.trips(id) on delete cascade,   -- fixes M2; proves a completed visit (FR-013 business rule)
   rating        smallint not null check (rating between 1 and 5),
   review_text   text,
   status        text not null default 'pending' check (status in ('pending','published','rejected')),
-  moderated_by  uuid references public.profiles(id),
+  moderated_by  uuid references public.profiles(id) on delete set null,  -- fixes M2
   moderated_at  timestamptz,
   created_at    timestamptz not null default now()
 );
@@ -470,7 +603,24 @@ create table public.budget_expenses (
 );
 create index budget_expenses_trip_idx on public.budget_expenses(trip_id);
 alter table public.budget_expenses enable row level security;
-create policy "budget_expenses_member" on public.budget_expenses for all using (public.is_trip_member(trip_id));
+
+-- fixes H6: same shared-view/author-or-owner-mutation split as memory_items —
+-- a group member can see the shared trip budget, but not silently edit or
+-- delete another member's logged expense.
+create policy "budget_expenses_select_member" on public.budget_expenses
+  for select using (public.is_trip_member(trip_id));
+create policy "budget_expenses_insert_own" on public.budget_expenses
+  for insert with check (public.is_trip_member(trip_id) and user_id = auth.uid());
+create policy "budget_expenses_update_author_or_owner" on public.budget_expenses
+  for update using (
+    user_id = auth.uid()
+    or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
+create policy "budget_expenses_delete_author_or_owner" on public.budget_expenses
+  for delete using (
+    user_id = auth.uid()
+    or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
 ```
 
 ---
@@ -508,7 +658,7 @@ create policy "trip_location_shares_own" on public.trip_location_shares for all 
 create table public.sos_events (
   id              uuid primary key default gen_random_uuid(),
   user_id         uuid not null references public.profiles(id) on delete cascade,
-  trip_id         uuid references public.trips(id),
+  trip_id         uuid references public.trips(id) on delete cascade,  -- fixes M2
   triggered_at    timestamptz not null default now(),
   last_known_lat  double precision,
   last_known_lng  double precision,
@@ -577,21 +727,35 @@ create table public.ai_conversations (
 
 create table public.ai_messages (
   id              uuid primary key default gen_random_uuid(),
-  conversation_id uuid not null references public.ai_conversations(id) on delete cascade,
+  -- fixes M8: nullable + context_type discriminator. AI_ARCHITECTURE.md §6's
+  -- Visual Q&A is a single-shot endpoint, not part of an ai_conversations
+  -- thread — NOT NULL here would force a throwaway conversation row per
+  -- photo question or fail outright. A real conflict between this document
+  -- and AI_ARCHITECTURE.md, resolved at the schema layer per this phase's
+  -- "identify the conflict, document the resolution" instruction.
+  conversation_id uuid references public.ai_conversations(id) on delete cascade,
+  context_type    text not null default 'chat' check (context_type in ('chat','photo_qa')),
   role            text not null check (role in ('user','assistant','system')),
   content         text not null,
   model           text,
   tokens_used     integer,
   confidence      text check (confidence in ('high','low')),   -- FR-008 low-confidence flagging
-  created_at      timestamptz not null default now()
+  created_at      timestamptz not null default now(),
+  check (context_type <> 'chat' or conversation_id is not null)
 );
 create index ai_messages_conversation_idx on public.ai_messages(conversation_id, created_at);
 alter table public.ai_conversations enable row level security;
 alter table public.ai_messages enable row level security;
 create policy "ai_conversations_own" on public.ai_conversations for all using (auth.uid() = user_id);
 create policy "ai_messages_own" on public.ai_messages for all using (
-  exists (select 1 from public.ai_conversations c where c.id = conversation_id and c.user_id = auth.uid())
+  conversation_id is not null
+  and exists (select 1 from public.ai_conversations c where c.id = conversation_id and c.user_id = auth.uid())
 );
+-- Note: photo_qa rows (conversation_id is null) are deliberately
+-- unreachable by this policy — no product screen reads ai_messages
+-- directly for photo Q&A history; those responses are returned
+-- synchronously in the API response and logged only for backend
+-- audit/golden-set purposes, read via the service-role key.
 ```
 
 ---
@@ -631,7 +795,7 @@ create table public.quick_plans (
 );
 create table public.quick_plan_items (
   quick_plan_id uuid not null references public.quick_plans(id) on delete cascade,
-  poi_id        uuid not null references public.pois(id),
+  poi_id        uuid not null references public.pois(id) on delete cascade,  -- fixes M2
   sequence_order smallint not null,
   primary key (quick_plan_id, poi_id)
 );
@@ -650,7 +814,7 @@ create policy "quick_plan_items_own" on public.quick_plan_items for all using (
 ```sql
 create table public.audit_logs (
   id             uuid primary key default gen_random_uuid(),
-  actor_user_id  uuid references public.profiles(id),
+  actor_user_id  uuid references public.profiles(id) on delete set null,  -- fixes C2 (was: blocked account deletion)
   action         text not null,        -- 'data_export','account_deletion','admin_content_edit', ...
   target_type    text not null,
   target_id      uuid,
@@ -760,4 +924,85 @@ erDiagram
 
 ## 16. Migration Strategy
 
-Versioned, forward-only SQL migrations (Supabase CLI / `supabase migration new`), applied automatically in CI/CD as part of deployment — never run manually against production (per PRD §35). See `DEPLOYMENT_PLAN.md` §Database Migrations for the pipeline.
+Versioned, forward-only SQL migrations under `supabase/migrations/` (timestamp-prefixed, matching Supabase CLI convention — `supabase init` was run to scaffold `supabase/config.toml`). Per PRD §35, never run manually against production without going through this same file-based, reviewed path.
+
+**Migration tooling decision (Phase 2):** applied via `scripts/apply_migrations.py` (a small `asyncpg`-based runner) rather than `supabase db push`, because the CLI's `--db-url` push path was evaluated but the direct-connection script gave simpler, more controllable error handling for this phase's real-credential debugging needs. It tracks applied migrations in `public._migrations_applied (filename, applied_at)` — its own bookkeeping table, not Supabase CLI's `supabase_migrations.schema_migrations` — so re-running the script is idempotent (only new files execute). If the team adopts the Supabase CLI for migrations going forward, reconciling the two tracking mechanisms is a one-time task, not an ongoing dual-maintenance burden. See `docs/PHASE_STATUS.md` Phase 2 for the full incident record of why this path was chosen over shell-based `supabase db push` invocation (a shell-quoting failure while handling real credentials — nothing to do with the CLI itself).
+
+---
+
+## 17. Storage (Memory Box foundation)
+
+Bucket + RLS policies only — the Memory Box **feature** (upload UI, download flow) is not implemented; this is the storage-layer counterpart to `memory_items` (§6).
+
+```sql
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'memory-items', 'memory-items', false,
+  26214400,  -- 25 MB (Proposed Target — not PRD-specified)
+  array['image/jpeg','image/png','image/heic','image/webp','video/mp4','video/quicktime']
+)
+on conflict (id) do nothing;
+```
+
+**Path convention:** `memory-items/{trip_id}/{user_id}/{uuid}-{filename}` — `trip_id` first (matches the table's per-trip access pattern), `user_id` second (lets storage-level RLS identify the uploader directly from the path).
+
+**Policies** mirror the H6-fixed `memory_items` table policies exactly, for the same reason H6 mattered: if the DB row were delete-restricted to the author but the underlying file object weren't, a co-member could still destroy the file directly via the Storage API, defeating the point of the fix.
+
+```sql
+create policy "memory_items_storage_select_member" on storage.objects
+  for select using (
+    bucket_id = 'memory-items'
+    and public.is_trip_member(((storage.foldername(name))[1])::uuid)
+  );
+create policy "memory_items_storage_insert_own" on storage.objects
+  for insert with check (
+    bucket_id = 'memory-items'
+    and public.is_trip_member(((storage.foldername(name))[1])::uuid)
+    and ((storage.foldername(name))[2]) = auth.uid()::text
+  );
+create policy "memory_items_storage_update_author_or_owner" on storage.objects
+  for update using (
+    bucket_id = 'memory-items'
+    and (
+      ((storage.foldername(name))[2]) = auth.uid()::text
+      or exists (select 1 from public.trips t where t.id = ((storage.foldername(name))[1])::uuid and t.owner_id = auth.uid())
+    )
+  );
+create policy "memory_items_storage_delete_author_or_owner" on storage.objects
+  for delete using (
+    bucket_id = 'memory-items'
+    and (
+      ((storage.foldername(name))[2]) = auth.uid()::text
+      or exists (select 1 from public.trips t where t.id = ((storage.foldername(name))[1])::uuid and t.owner_id = auth.uid())
+    )
+  );
+```
+
+---
+
+## 18. Retention Contract Functions
+
+Per this phase's scope boundary — "establish the documented contract but do not prematurely build unrelated [scheduler] infrastructure" — these are read-only SQL functions giving a future scheduled job (`DEPLOYMENT_PLAN.md` §5) a single, correct source of truth for "what needs action," without building the cron/scheduler itself. Neither function ever writes `deleted_at` — matching the hard rule that the reminder job "NEVER sets `deleted_at`" (§6).
+
+```sql
+create function public.memory_items_due_for_reminder()
+returns setof public.memory_items
+language sql stable security definer set search_path = public as $$
+  select * from public.memory_items
+  where deleted_at is null and expiry_reminder_sent_at is null
+    and retention_expires_at - now() < interval '14 days';
+$$;
+
+create function public.location_pings_due_for_purge()
+returns setof public.location_pings
+language sql stable security definer set search_path = public as $$
+  select lp.* from public.location_pings lp
+  join public.trips t on t.id = lp.trip_id
+  where t.status in ('completed','cancelled') and lp.recorded_at < now() - interval '7 days';
+$$;
+
+revoke execute on function public.memory_items_due_for_reminder() from public;
+revoke execute on function public.location_pings_due_for_purge() from public;
+grant execute on function public.memory_items_due_for_reminder() to service_role;
+grant execute on function public.location_pings_due_for_purge() to service_role;
+```

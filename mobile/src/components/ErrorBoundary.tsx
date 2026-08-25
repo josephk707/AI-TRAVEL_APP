@@ -18,7 +18,7 @@ interface State {
  * never white-screen the app). Catches render-time errors only (React
  * error boundaries cannot catch errors in async callbacks/event
  * handlers — those are handled per-call via try/catch, e.g. in
- * FoundationScreen's health check).
+ * HomeScreen's profile-loading calls).
  */
 export class ErrorBoundary extends React.Component<Props, State> {
   state: State = { error: null };

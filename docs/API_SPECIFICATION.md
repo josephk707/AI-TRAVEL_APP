@@ -3,6 +3,8 @@
 
 Companion to `IMPLEMENTATION_BLUEPRINT.md` and `DATABASE_SCHEMA.md`. Endpoint groups and table references are consistent across all three documents.
 
+**Phase 3 conflict resolution (H1, `ARCHITECTURE_REVIEW.md`):** §2 below previously described `POST /auth/session/bootstrap` as the mechanism that "provisions" the `profiles` row. Phase 2 implemented the actual profile-creation mechanism as a database trigger (`handle_new_user()` on `auth.users` insert — see `DATABASE_SCHEMA.md` §3), not an API call. This was a real conflict between this document and what got built: the trigger runs the instant Supabase Auth creates the `auth.users` row, before the mobile client could ever call a bootstrap endpoint. §2 is updated below to describe `/auth/session/bootstrap` accurately as an idempotent **load-or-defensive-create** call — it reads the profile the trigger already created; the create path only fires if the trigger somehow didn't run, which should not happen in normal operation but is handled rather than assumed away. This is not a product requirement change (FR-002's "no partial account on denied consent" still holds — the trigger only fires after Supabase Auth confirms a real user, same guarantee, enforced one layer earlier and more reliably than an API call could).
+
 ---
 
 ## 1. Conventions
@@ -50,19 +52,26 @@ Companion to `IMPLEMENTATION_BLUEPRINT.md` and `DATABASE_SCHEMA.md`. Endpoint gr
 ---
 
 ## 2. Auth & Session
-*Backend: F1 · DB: `profiles`*
+*Backend: Phase 3 (Authentication, Authorization & User Identity) · DB: `profiles`*
+
+Every endpoint below derives identity **exclusively** from the verified Supabase JWT (`Authorization: Bearer <access_token>`) via the `get_current_user()` dependency — none accepts a user id as a path/query/body parameter. A request with no token, an expired token, a malformed token, or a token with an invalid signature/audience is rejected with `401` before any handler code runs.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/auth/session/bootstrap` | Bearer (fresh Supabase session) | Idempotently provisions/loads the `profiles` row after Google OAuth completes. No-op if the row already exists. **Never called until Supabase confirms a real session** — enforces FR-002's "no partial account on denied consent." |
-| `GET` | `/auth/me` | Bearer | Returns the current `profiles` row + `onboarding_completed_at` flag (used by the client to route to Onboarding vs. Home) |
-| `POST` | `/auth/logout` | Bearer | Revokes the current refresh token server-side (defense-in-depth; client also clears local session) |
-| `POST` | `/auth/account/delete-request` | Bearer | Queues account + data deletion (§27 business rule: memory-box items are never deleted silently — this only *starts* the process, see `DEPLOYMENT_PLAN.md` §Data Deletion Workflow) |
+| `POST` | `/auth/session/bootstrap` | Bearer | **Idempotent load-or-defensive-create.** The `profiles` row is actually created by the `handle_new_user()` database trigger the instant Supabase Auth creates the `auth.users` row (`DATABASE_SCHEMA.md` §3) — not by this endpoint. This call reads that row; if (and only if, which should not happen in normal operation) the trigger hasn't run yet, it creates the row defensively rather than erroring. Client calls this once right after a session is established, before navigating past sign-in. |
+| `GET` | `/auth/me` | Bearer | Returns the caller's own `profiles` row + `onboarding_completed_at` flag. The Phase 3 proof-of-concept protected endpoint. |
+| `POST` | `/auth/logout` | Bearer | Calls Supabase Auth's admin sign-out for the caller's session, revoking their **refresh token** server-side (defense-in-depth beyond the client clearing its local session). Honest security property, stated plainly rather than overclaimed: this does not instantly invalidate the **access token** already issued — JWTs are stateless and remain cryptographically valid until their own (short, ~1h) expiry regardless of logout, exactly like any standard JWT-based system. What logout guarantees is that no *new* access token can be minted from that refresh token afterward. |
+| `POST` | `/auth/account/delete-request` | Bearer | **Deferred, not implemented this phase.** Documented here for completeness (matches `DEPLOYMENT_PLAN.md` §6's workflow) but is a data-lifecycle feature (audit logging, a multi-step deletion workflow) distinct from core identity — out of Phase 3's scope, which is authentication/authorization/identity only. |
 
 **Response — `GET /auth/me`**
 ```json
 { "data": { "id": "uuid", "display_name": "Meera", "role": "traveller",
   "onboarding_completed_at": null, "home_region": "Tamil Nadu" } }
+```
+
+**Response — unauthenticated/invalid token (any endpoint above) — `401`**
+```json
+{ "error": { "code": "UNAUTHORIZED", "message": "Authentication required." } }
 ```
 
 ---

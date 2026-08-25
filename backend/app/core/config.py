@@ -6,6 +6,20 @@ development, never committed — see backend/.env.example). No secret ever has
 a real default here; anything sensitive defaults to empty/None and is
 required to be supplied by the environment.
 
+Genuine secrets (database_url embeds a password; supabase_service_role_key
+bypasses RLS entirely) are typed as pydantic.SecretStr, not str. This is
+not decorative: SecretStr's __repr__/__str__ print "**********" instead of
+the real value, which means an accidental print(settings), a pytest
+assertion-failure diff that reprs the object, a debugger, or a log
+statement CANNOT leak the value even if someone forgets to be careful —
+the leak is prevented structurally rather than relying on every call site
+remembering not to. (This project hit exactly this failure mode once
+before SecretStr was added here — see docs/PHASE_STATUS.md Phase 2 "known
+limitations" for the incident record — which is why this isn't a
+theoretical concern.) supabase_url and supabase_anon_key stay plain str:
+both are designed by Supabase to be public/embeddable in client apps, not
+secrets.
+
 Phase 1 scope: configuration loading only. Nothing here implements auth,
 schema, or business logic — see docs/DEPLOYMENT_PLAN.md §4 for the full
 secrets-management plan this will grow into.
@@ -14,7 +28,7 @@ secrets-management plan this will grow into.
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,17 +55,27 @@ class Settings(BaseSettings):
     # --- Logging ---
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    # --- Database connection foundation (Phase 1: config only, no schema) ---
+    # --- Database connection (Phase 2: real schema exists) ---
     # Direct Postgres connection string (Supabase exposes this per-project).
-    # Left unset in local/dev-without-Supabase; readiness reports
-    # "not_configured" rather than failing when absent.
-    database_url: str | None = Field(default=None)
+    # SecretStr: contains the database password. Left unset in
+    # local/dev-without-Supabase; readiness reports "not_configured" rather
+    # than failing when absent.
+    database_url: SecretStr | None = Field(default=None)
 
-    # Supabase project coordinates — placeholders until Phase 2/3 wire real
-    # values. Never given a real default.
+    # Supabase project coordinates.
     supabase_url: str | None = Field(default=None)
-    supabase_anon_key: str | None = Field(default=None)
-    supabase_service_role_key: str | None = Field(default=None)
+    supabase_anon_key: str | None = Field(default=None)  # public/publishable by design
+    supabase_service_role_key: SecretStr | None = Field(default=None)  # bypasses RLS — real secret
+
+    # --- Auth (Phase 3) ---
+    # The project's JWT signing secret (Dashboard > Settings > API > JWT
+    # Settings) — used to cryptographically verify every user access token
+    # server-side (app/core/security.py). A different value from the
+    # anon/service_role keys above (those are themselves JWTs signed WITH
+    # this secret, not the secret itself). SecretStr: this is the single
+    # most sensitive value in the whole system — anyone with it can forge
+    # a valid session for any user.
+    supabase_jwt_secret: SecretStr | None = Field(default=None)
 
     @property
     def cors_origins_list(self) -> list[str]:

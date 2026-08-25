@@ -1,10 +1,10 @@
 """
 FastAPI application entry point.
 
-Phase 1 scope (docs/PHASE_STATUS.md): project foundation only. No
-authentication, no business tables/endpoints — those are explicitly
-deferred to later phases per the approved sequence in CLAUDE.md /
-IMPLEMENTATION_BLUEPRINT.md.
+Mounts the unversioned health/readiness probes and the versioned /v1
+product API surface (currently /v1/auth/* — see app/api/v1/router.py).
+Business-feature endpoints beyond auth are still deferred to later phases
+per the approved sequence in CLAUDE.md / IMPLEMENTATION_BLUEPRINT.md.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
 from app.core.exceptions import NotFoundError, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.db.session import close_pool, create_pool
 
 settings = get_settings()
 configure_logging()
@@ -32,7 +33,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         "app_startup",
         extra={"environment": settings.environment, "version": settings.app_version},
     )
+    # A missing/unreachable database must never prevent the API process
+    # itself from starting — create_pool() returns None rather than
+    # raising if DATABASE_URL is unset or unreachable (see app/db/session.py).
+    await create_pool()
     yield
+    await close_pool()
     logger.info("app_shutdown")
 
 
