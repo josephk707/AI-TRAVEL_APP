@@ -113,6 +113,22 @@ export function HomeScreen(): React.JSX.Element {
 
       <Pressable
         style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
+        onPress={() => navigation.navigate("QuickPlan")}
+        accessibilityRole="button"
+        testID="quick-plan-button"
+      >
+        <View style={styles.exploreIconBadge}>
+          <Ionicons name="flash-outline" size={24} color={colors.primaryText} />
+        </View>
+        <View style={styles.exploreTextGroup}>
+          <Text style={styles.exploreTitle}>Quick plan</Text>
+          <Text style={styles.exploreSubtitle}>A short local outing, planned in seconds</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
         onPress={() => navigation.navigate("Explore")}
         accessibilityRole="button"
         testID="explore-places-button"

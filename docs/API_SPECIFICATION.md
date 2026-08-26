@@ -177,6 +177,41 @@ Map-tile load failures are a client-side concern (degrade to list view, §24) �
 
 ---
 
+## 6b. Dynamic Itinerary Re-Adaptation (Phase 8)
+*Backend: F20 · DB: `disruption_events` · AI_ARCHITECTURE.md §8*
+
+**Documented resolution of ARCHITECTURE_REVIEW.md H2** (`disruption_events` had two contradictory API surfaces across documents — this document's own traceability table said "via notifications," `IMPLEMENTATION_BLUEPRINT.md` F20 specified dedicated endpoints): the Blueprint's dedicated endpoints below are authoritative, per H2's own recommended resolution. The vaguer "via notifications" description is retired.
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/trips/{trip_id}/disruptions` | Bearer, member | List all disruption events for the trip (proposed/accepted/dismissed) |
+| `POST` | `/trips/{trip_id}/disruptions/check` | Bearer, member | Manually trigger a real check against current conditions (weather is the one genuinely auto-detected trigger this phase — see `app/services/disruption_service.py`'s module docstring for the other schema-supported trigger types not yet wired to a live signal) |
+| `POST` | `/trips/{trip_id}/disruptions/{event_id}/resolve` | Bearer, member | `{ "decision": "accept" \| "dismiss", "alternative_index"? }` — nothing is ever applied to the itinerary until this is called with `"accept"` (§16, §21.2) |
+
+Real, live-throttled detection also runs opportunistically inside `POST /trips/{id}/location/ping` (F7) — no `pg_cron`/scheduler infrastructure exists yet in this environment (same class of gap as the still-unbuilt `location_pings` retention job), so this is the real, working substitute for a true scheduled cadence, documented rather than silently assumed.
+
+**Response — `GET /trips/{trip_id}/disruptions`**
+```json
+{ "data": [ { "id": "uuid", "trip_id": "uuid", "itinerary_item_id": "uuid", "trigger_type": "weather",
+  "detected_at": "2026-10-10T05:00:00Z",
+  "proposal": { "reason": "Adverse weather is forecast for Taj Mahal on 2026-10-10.",
+    "alternatives": [ { "poi_id": "uuid", "poi_name": "Agra Fort", "lat": 27.18, "lng": 78.02 } ] },
+  "status": "proposed", "resolved_at": null } ] }
+```
+
+---
+
+## 6c. Offline Heritage Access (Phase 8)
+*Backend: F26 · Reads: `heritage_content`, `phrasebook_entries`, `pois` (packaged, no new tables)*
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/trips/{trip_id}/offline-package` | Bearer, member | Real bundle of the trip's own itinerary POIs, their published heritage overview content, and the destination's curated phrasebook — the mobile client persists this locally (`expo-file-system`) for read-only offline use |
+
+Map-tile offline caching is explicitly out of scope (documented decision, `app/services/offline_service.py`'s module docstring) — no verifiable first-party `react-native-maps` offline-tile API exists to build against.
+
+---
+
 ## 7. Heritage Narration (RAG)
 *Backend: F8 · DB: `pois`, `heritage_content`, `heritage_content_embeddings`*
 
@@ -303,14 +338,19 @@ New reviews are created with `status = 'pending'` and excluded from `GET /pois/{
 ---
 
 ## 13. Group Trips (Phase 2)
-*Backend: F19 · DB: `trip_members`, `trip_preferences`*
+*Backend: F19 · DB: `trip_members`, `trip_preferences`, `trip_invites` (Phase 8 addition)*
+
+**Documented schema decision (Phase 8):** `trip_members`' primary key requires a known `user_id`, but an invite link/email is issued before that identity is known. A new `trip_invites` table (migration `20260828120001`) holds the pending, redeemable token; the real `trip_members` row is only ever created — directly as `invite_status='accepted'` — at the moment `POST /trips/invite/{token}/accept` succeeds. See `app/repositories/group_repository.py`'s module docstring.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/trips/{trip_id}/invite` | Bearer, owner | `{ "method": "link" }` or `{ "email": "..." }` |
+| `POST` | `/trips/{trip_id}/invite` | Bearer, owner | `{ "method": "link" }` or `{ "method": "email", "email": "..." }` — returns a real, redeemable `token`/`invite_url`; no email is actually sent (no provider was ever named for this — the Blueprint itself lists "External API: None" for F19) |
 | `POST` | `/trips/invite/{invite_token}/accept` | Bearer | Joins the inviting trip as a member |
-| `POST` | `/trips/{trip_id}/members/{user_id}/preferences` | Bearer, self | Submit own interests/budget/constraints |
+| `POST` | `/trips/{trip_id}/members/{user_id}/preferences` | Bearer, self (`user_id` must equal the caller) | Submit own interests/budget/constraints |
+| `GET` | `/trips/{trip_id}/members` | Bearer, member | List the trip's members and their invite status (Phase 8 addition — the frontend's shared member list needs this) |
 | `POST` | `/trips/{trip_id}/itinerary/reconcile` | Bearer, owner | Regenerate itinerary from all submitted member preferences; response includes a `conflicts[]` array with the trade-off explanation for each (FR-012 business rule) |
+
+**Documented resolution of ARCHITECTURE_REVIEW.md H5** ("edit rights" language had no PRD basis and no RLS implementation): any accepted trip member can propose/apply itinerary changes — matches the existing permissive `is_trip_accessible()`/RLS behavior every F3/F4/F5 endpoint already relies on. No differentiated permission tier was added.
 
 ---
 
@@ -322,7 +362,7 @@ New reviews are created with `status = 'pending'` and excluded from `GET /pois/{
 | `GET` | `/trips/{trip_id}/budget` | Bearer, member | Planned vs. actual summary |
 | `POST` | `/trips/{trip_id}/expenses` | Bearer, member | `{ "category", "amount", "currency", "split_with"? }` |
 
-Over-budget notice is computed server-side and surfaced via a `notifications` row + included in the response `meta.over_budget: true`, never blocks the write (FR-016 business rule).
+Over-budget notice is computed server-side and surfaced via a `notifications` row + included in the response `meta.over_budget: true`, never blocks the write (FR-016 business rule). `split_with` (Phase 8, F23) is validated server-side against real trip membership (`SPLIT_WITH_NON_MEMBER` if any named `user_id` isn't the owner or an accepted member); `GET /trips/{id}/budget`'s response additionally includes a computed `per_member_owed: { [user_id]: amount }` breakdown, summed across every expense that carries a `split_with`.
 
 ---
 
@@ -368,7 +408,7 @@ An `explicit_correction` signal type immediately writes to `personalization_prof
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/quick-plans` | Bearer | `{ "time_available_min", "budget", "occasion" }` → 1–3 stop plan |
+| `POST` | `/quick-plans` | Bearer | `{ "time_available_min", "budget"?, "occasion"?, "lat"?, "lng"? }` → 1–3 stop plan. `lat`/`lng` (Phase 8 addition, not in the original request shape sketched here) scope candidates to the traveller's current position; when omitted, falls back to `profiles.home_region` text search. Neither present → `422 NOT_ENOUGH_LOCAL_DATA` (FR-015 exception flow — states so rather than returning a low-quality generic list) |
 | `POST` | `/quick-plans/{id}/save-to-collection` | Bearer | Converts a quick plan into a saved collection |
 
 ---
@@ -413,7 +453,7 @@ An `explicit_correction` signal type immediately writes to `personalization_prof
 | FR-011 | `POST /favorites`, `POST /collections` |
 | FR-012 | `POST /trips/{id}/invite`, `.../reconcile` |
 | FR-013 | `POST /reviews`, `GET /pois/{id}/reviews` |
-| FR-014 | (server-initiated) `disruption_events` surfaced via `GET /notifications` + `POST /trips/{id}/itinerary/modify` accept flow |
+| FR-014 | `GET /trips/{id}/disruptions`, `POST /trips/{id}/disruptions/check`, `POST .../disruptions/{id}/resolve` (Phase 8 — resolves ARCHITECTURE_REVIEW.md H2 in favor of the Blueprint's dedicated endpoints; see §6b) |
 | FR-015 | `POST /quick-plans` |
 | FR-016 | `POST /trips/{id}/expenses`, `GET /trips/{id}/budget` |
 | FR-017 | `POST /safety/sos`, `POST /trips/{id}/share/start` |

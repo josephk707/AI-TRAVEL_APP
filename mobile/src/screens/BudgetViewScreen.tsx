@@ -3,10 +3,12 @@ import type { RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Switch, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ApiError } from "../api/client";
 import { BudgetSummary, Expense, ExpenseCategory, fetchBudgetSummary, logExpense } from "../api/budget";
+import { listTripMembers, TripMember } from "../api/group";
+import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { LoadingView } from "../components/LoadingView";
@@ -26,6 +28,7 @@ const CATEGORIES: ExpenseCategory[] = ["lodging", "food", "transport", "activity
 export function BudgetViewScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "BudgetView">>();
   const { tripId } = route.params;
+  const { user } = useAuth();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [category, setCategory] = useState<ExpenseCategory>("food");
@@ -33,6 +36,14 @@ export function BudgetViewScreen(): React.JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [overBudgetNotice, setOverBudgetNotice] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [members, setMembers] = useState<TripMember[]>([]);
+  const [splitEqually, setSplitEqually] = useState(false);
+
+  useEffect(() => {
+    listTripMembers(tripId)
+      .then(setMembers)
+      .catch(() => undefined);
+  }, [tripId]);
 
   const resolveBudget = useCallback(async (): Promise<LoadState> => {
     try {
@@ -70,7 +81,15 @@ export function BudgetViewScreen(): React.JSX.Element {
     setSubmitError(null);
     setSubmitting(true);
     try {
-      const { overBudget } = await logExpense(tripId, category, amount);
+      const splitWith =
+        splitEqually && members.length > 0 && user
+          ? (() => {
+              const participantIds = [user.id, ...members.map((m) => m.user_id)];
+              const share = 1 / participantIds.length;
+              return participantIds.map((userId) => ({ user_id: userId, share }));
+            })()
+          : undefined;
+      const { overBudget } = await logExpense(tripId, category, amount, "INR", splitWith);
       setOverBudgetNotice(overBudget);
       setAmountText("");
       load();
@@ -79,7 +98,7 @@ export function BudgetViewScreen(): React.JSX.Element {
     } finally {
       setSubmitting(false);
     }
-  }, [tripId, category, amountText, load]);
+  }, [tripId, category, amountText, load, splitEqually, members, user]);
 
   return (
     <View style={styles.flex}>
@@ -124,6 +143,16 @@ export function BudgetViewScreen(): React.JSX.Element {
                     </Text>
                   </View>
                 )}
+                {Object.keys(state.summary.per_member_owed).length > 0 && (
+                  <View style={styles.owedSection} testID="per-member-owed">
+                    <Text style={styles.summaryLabel}>Who owes what</Text>
+                    {Object.entries(state.summary.per_member_owed).map(([userId, amount]) => (
+                      <Text key={userId} style={styles.owedRow}>
+                        {userId === user?.id ? "You" : userId.slice(0, 8)}: ₹{amount}
+                      </Text>
+                    ))}
+                  </View>
+                )}
               </Card>
 
               <Card style={styles.form}>
@@ -149,6 +178,16 @@ export function BudgetViewScreen(): React.JSX.Element {
                   onChangeText={setAmountText}
                   testID="budget-amount-input"
                 />
+                {members.length > 0 && (
+                  <View style={styles.splitRow} testID="split-equally-row">
+                    <Text style={styles.formTitle}>Split equally with the group</Text>
+                    <Switch
+                      value={splitEqually}
+                      onValueChange={setSplitEqually}
+                      testID="split-equally-switch"
+                    />
+                  </View>
+                )}
                 {submitError && <Text style={styles.errorText}>{submitError}</Text>}
                 {overBudgetNotice && (
                   <Text style={styles.overBudgetInlineText} testID="budget-over-toast">
@@ -207,6 +246,13 @@ const styles = StyleSheet.create({
   },
   overBudgetText: { ...typography.caption, color: colors.warning, flex: 1 },
   overBudgetInlineText: { ...typography.caption, color: colors.warning },
+  owedSection: { marginTop: spacing.sm, gap: 2 },
+  owedRow: { ...typography.caption, color: colors.text },
+  splitRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   form: { gap: spacing.sm },
   formTitle: { ...typography.subtitle, color: colors.text },
   categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },

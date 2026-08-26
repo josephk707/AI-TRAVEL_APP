@@ -11,26 +11,38 @@ from app.repositories.base import Repository
 
 class BudgetRepository(Repository):
     async def create_expense(
-        self, trip_id: str, user_id: str, category: str, amount: float, currency: str
+        self,
+        trip_id: str,
+        user_id: str,
+        category: str,
+        amount: float,
+        currency: str,
+        split_with: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        # `split_with` is a real Python list (or None), not a pre-serialized
+        # string — the pooled connection's jsonb<->Python codec handles
+        # encoding automatically (see PHASE_STATUS.md Phase 7's "jsonb
+        # double-encoding bug" finding — do not json.dumps() it here).
         row = await self.fetchrow(
             """
-            insert into public.budget_expenses (trip_id, user_id, category, amount, currency)
-            values ($1, $2, $3, $4, $5)
-            returning id, trip_id, user_id, category, amount, currency, logged_at;
+            insert into public.budget_expenses
+                (trip_id, user_id, category, amount, currency, split_with)
+            values ($1, $2, $3, $4, $5, $6::jsonb)
+            returning id, trip_id, user_id, category, amount, currency, split_with, logged_at;
             """,
             uuid.UUID(trip_id),
             uuid.UUID(user_id),
             category,
             amount,
             currency,
+            split_with,
         )
         assert row is not None
         return dict(row)
 
     async def list_expenses(self, trip_id: str) -> list[dict[str, Any]]:
         rows = await self.fetch(
-            "select id, trip_id, user_id, category, amount, currency, logged_at "
+            "select id, trip_id, user_id, category, amount, currency, split_with, logged_at "
             "from public.budget_expenses where trip_id = $1 order by logged_at desc;",
             uuid.UUID(trip_id),
         )

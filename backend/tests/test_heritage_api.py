@@ -177,6 +177,36 @@ async def test_narration_with_mocked_llm_composes_a_grounded_overview(
 
 
 # ---------------------------------------------------------------------------
+# F24 — Expanded Heritage POI Catalog (Phase 8, scripts/seed_phase8_heritage_expansion.py)
+# ---------------------------------------------------------------------------
+async def test_expanded_catalog_poi_is_searchable_and_has_real_grounded_narration(
+    client: AsyncClient, real_session: _RealSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.services import narration_service
+
+    search_response = await client.get(
+        "/v1/pois/search", params={"query": "Qutub Minar"}, headers=real_session.auth_header
+    )
+    assert search_response.status_code == 200
+    results = search_response.json()["data"]
+    assert results, "scripts/seed_phase8_heritage_expansion.py must have seeded Qutub Minar"
+    poi_id = results[0]["id"]
+
+    fake_result = narration_service._NarrationSchema(
+        narration="The Qutub Minar is a 73-metre minaret built by Qutb al-Din Aibak."
+    )
+    monkeypatch.setattr(narration_service, "get_llm_gateway", lambda: _FakeGateway(fake_result))
+
+    narration_response = await client.get(
+        f"/v1/heritage/{poi_id}/narration", headers=real_session.auth_header
+    )
+    assert narration_response.status_code == 200
+    data = narration_response.json()["data"]
+    assert data["poi_name"] == "Qutub Minar"
+    assert "Qutb al-Din Aibak" in data["narration"]
+
+
+# ---------------------------------------------------------------------------
 # F9 Visual Q&A
 # ---------------------------------------------------------------------------
 async def test_photo_qa_rejects_unauthenticated_request(client: AsyncClient) -> None:

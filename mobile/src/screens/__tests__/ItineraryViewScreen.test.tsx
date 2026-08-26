@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import React from "react";
 
 import { ApiError } from "../../api/client";
+import { fetchOfflinePackage } from "../../api/offline";
 import { fetchItinerary, fetchTrip, ItineraryDay, Trip } from "../../api/trips";
 import { ItineraryViewScreen } from "../ItineraryViewScreen";
 
@@ -19,8 +20,29 @@ jest.mock("../../api/trips", () => ({
   fetchItinerary: jest.fn(),
 }));
 
+jest.mock("../../api/offline", () => ({
+  fetchOfflinePackage: jest.fn(),
+}));
+
+const mockFileWrite = jest.fn();
+const mockFileCreate = jest.fn();
+const mockDirectoryCreate = jest.fn();
+jest.mock("expo-file-system", () => ({
+  Directory: jest.fn().mockImplementation(() => ({
+    exists: false,
+    create: mockDirectoryCreate,
+  })),
+  File: jest.fn().mockImplementation(() => ({
+    exists: false,
+    create: mockFileCreate,
+    write: mockFileWrite,
+  })),
+  Paths: { document: "file:///document/" },
+}));
+
 const mockFetchTrip = fetchTrip as jest.Mock;
 const mockFetchItinerary = fetchItinerary as jest.Mock;
+const mockFetchOfflinePackage = fetchOfflinePackage as jest.Mock;
 
 function makeTrip(overrides: Partial<Trip> = {}): Trip {
   return {
@@ -115,5 +137,48 @@ describe("ItineraryViewScreen", () => {
     fireEvent.press(screen.getByTestId("open-chat-fab"));
 
     expect(mockNavigate).toHaveBeenCalledWith("Chat", { tripId: "trip-1" });
+  });
+
+  // -------------------------------------------------------------------
+  // F26 — Offline Heritage Access ("Download for offline")
+  // -------------------------------------------------------------------
+  it("downloads the real offline package and persists it locally", async () => {
+    mockFetchTrip.mockResolvedValue(makeTrip());
+    mockFetchItinerary.mockResolvedValue([makeDay()]);
+    mockFetchOfflinePackage.mockResolvedValue({
+      trip_id: "trip-1",
+      packaged_at: "2026-01-01T00:00:00Z",
+      pois: [{ poi_id: "poi-1", name: "Taj Mahal", category: "heritage", lat: 27.17, lng: 78.04 }],
+      heritage_content: [
+        { poi_id: "poi-1", section_title: "Overview", body_text: "...", source_citation: "ASI" },
+      ],
+      phrasebook_entries: [],
+    });
+
+    await render(<ItineraryViewScreen />);
+    await waitFor(() => expect(screen.getByTestId("download-offline-button")).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("download-offline-button"));
+    });
+
+    await waitFor(() => expect(mockFetchOfflinePackage).toHaveBeenCalledWith("trip-1"));
+    await waitFor(() => expect(mockFileWrite).toHaveBeenCalled());
+    expect(screen.getByTestId("download-message")).toBeTruthy();
+  });
+
+  it("shows a typed error message when the offline download fails", async () => {
+    mockFetchTrip.mockResolvedValue(makeTrip());
+    mockFetchItinerary.mockResolvedValue([makeDay()]);
+    mockFetchOfflinePackage.mockRejectedValue(new ApiError(500, "Server exploded"));
+
+    await render(<ItineraryViewScreen />);
+    await waitFor(() => expect(screen.getByTestId("download-offline-button")).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("download-offline-button"));
+    });
+
+    await waitFor(() => expect(screen.getByText("Server exploded")).toBeTruthy());
   });
 });

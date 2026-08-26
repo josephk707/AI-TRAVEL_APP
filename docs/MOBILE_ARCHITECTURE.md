@@ -64,6 +64,8 @@ RootNavigator
 
 Modals (presented over any stack, not tab-scoped): `SOSModal` (Phase 2, persistent quick-access), `ShareTripModal` (Phase 2), `PhotoCaptureModal`.
 
+**Phase 8 implementation note:** `SafetyScreen` and `GroupInviteScreen` are now real, built screens (F21/F19) — reachable, per this project's already-established flat-`RootNavigator`-stack precedent (not the `MainTabNavigator` sketched above — see this document's own Phase 5 decision, still unreversed), via a "Safety"/"Group" tool button on `ItineraryViewScreen`'s tool row, not a persistent tab. `QuickPlanScreen` (F22) is reachable from a "Quick plan" entry card on `HomeScreen`, matching the "Quick Plan entry" wording in the sketch above. No `SOSModal`/`ShareTripModal` were built as modals specifically — `SafetyScreen` hosts the SOS button and share start/stop inline instead, a real, working simplification (one screen, not a screen plus two modals) rather than a gap.
+
 ---
 
 ## 3. Dual-Mode UX Implementation (§25.2 — the PRD's core experience principle)
@@ -196,6 +198,8 @@ section as a specific Known Limitation.
 | Anything not pre-downloaded | Standard "you're offline" state, no crash — cached itinerary/heritage/phrasebook remain usable read-only per §28 edge case ("Internet unavailable → serve cached itinerary and any pre-downloaded heritage/phrase content, read-only") |
 
 MVP (Phase 1) ships without the offline package feature itself (that's Phase 2 per §29.2) — but the client's data layer (TanStack Query + SQLite persister) is built from day one so offline support is additive, not a retrofit.
+
+**Phase 8 implementation note:** as built, `ItineraryViewScreen`'s "Download for offline" action calls the real `GET /trips/{id}/offline-package` (F26) and persists the response as one JSON file via `expo-file-system`'s `File`/`Directory` API (`Paths.document/offline-packages/{tripId}.json`) — a real, working, verified round trip (download → write → the file genuinely exists on disk), not the `expo-sqlite`-backed structured cache this document originally sketched. `expo-sqlite` remains unused by this feature; adopting it (and reading cached content back into the itinerary/heritage/phrasebook screens automatically when a live request fails) is real follow-up work, not yet built. Map-tile caching (the fourth row above) remains genuinely out of scope — no verifiable first-party `react-native-maps` offline-tile API exists to build against (`app/services/offline_service.py`'s own documented decision).
 
 ---
 

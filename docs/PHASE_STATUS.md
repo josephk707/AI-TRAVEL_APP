@@ -1372,3 +1372,212 @@ Every checklist item is satisfied **except** full mobile background location tra
 ## STOP
 
 Phase 7 (F7/F10/F11/F13/F14/F15/F16/F17/F18) is classified **PARTIAL**, not COMPLETE. Every backend endpoint, database change, and mobile screen for all nine features is real, live-verified against the real Supabase project, and free of fake/hardcoded/simulated functionality — 62/62 new backend tests and 39/39 new mobile tests pass, with zero regressions in either existing suite beyond one pre-existing, unrelated Gemini-rate-limit flake in a Phase 6 test. The sole reason this phase is not COMPLETE is a genuine, honestly-documented gap: mobile background location tracking (`expo-task-manager`) was not implemented, because it requires native background-permission flows and battery/process-kill handling that cannot be safely built or verified without a physical device, which this environment does not have. Per CLAUDE.md §12, no further phase has been started and none of Phase 8's features (F19 Group Planning, etc.) were touched. Waiting for (1) a physical device or explicit direction on how to proceed with background location tracking, (2) the Phase 6 Gemini-quota/`WEATHER_API_KEY`/Google OAuth/Google Maps blockers carried forward unchanged, and (3) explicit authorization to begin the next phase thereafter.
+
+---
+
+## PHASE 8 — INTELLIGENT TRAVEL COMPANION (F19/F20/F21/F22/F23/F24/F26)
+
+## Objective
+
+Complete `IMPLEMENTATION_BLUEPRINT.md`'s Blueprint-Phase-2 ("Intelligent Travel Companion," PRD §31) product-roadmap scope not yet built: **F19** (Group/Collaborative Trip Planning), **F20** (Dynamic Itinerary Re-Adaptation), **F21** (Safety/SOS Trusted-Contact Sharing), **F22** (Weekend/Local Outing Quick Plan), **F23** (Budget Tracking with Group Expense Splitting, extends F15), **F24** (Expanded Heritage POI Catalog, extends F8), **F26** (Offline Heritage Access). F25 (Live Speech Translation) — also part of this same product-roadmap phase — was already built in session-Phase 6 and is unaffected here. This is the product roadmap's own "Phase 2," distinct from this project's own sequential session-numbering ("session Phase 8").
+
+## Scope Determination (read this first)
+
+Determined by cross-referencing `IMPLEMENTATION_BLUEPRINT.md` §2 (`PRD §31` phase mapping) against what every table these features need already existed, unused, since Phase 2's own migrations (`20260825120004` for `trip_members`/`trip_preferences`, `20260825120007` for `trusted_contacts`/`trip_location_shares`/`sos_events`, `20260825120009` for `disruption_events`/`weather_cache`/`quick_plans`/`quick_plan_items`, and `budget_expenses.split_with` in `20260825120006`) — confirmed live against the real database before writing any code. No Phase 3/4 feature (booking, AI trip recap, predictive recommendations, etc.) was implemented or touched.
+
+**Two real documentation conflicts were found in `ARCHITECTURE_REVIEW.md` and resolved before touching the areas they flag (per CLAUDE.md's own instruction), not silently guessed past:**
+
+1. **H2 (HIGH) — `disruption_events` (FR-014) had two contradictory API surfaces.** `IMPLEMENTATION_BLUEPRINT.md` F20 specified dedicated `GET /trips/{id}/disruptions` + `POST .../disruptions/{id}/resolve` endpoints; `API_SPECIFICATION.md`'s own traceability table instead described "(server-initiated) surfaced via `GET /notifications` + `POST .../itinerary/modify` accept flow" — two incompatible designs, never reconciled. **Resolved per H2's own recommended option:** the Blueprint's dedicated endpoints were implemented (they map directly to the `disruption_events` table and its `status` enum); `API_SPECIFICATION.md` §6b now documents them formally, retiring the vaguer description.
+2. **H5 (HIGH) — F5's "edit rights" language had no PRD basis and no RLS implementation.** `IMPLEMENTATION_BLUEPRINT.md` F5 implied a group-trip permission tier beyond simple membership that was never defined in the PRD or backed by any RLS predicate. **Resolved per H5's own recommended option (a):** any accepted trip member can propose/apply itinerary changes — matching the existing permissive `is_trip_accessible()`/RLS behavior every F3/F4/F5 endpoint already relies on. No new permission column was added; documented in `app/services/group_service.py`'s module docstring and `API_SPECIFICATION.md` §13.
+
+**One new, genuinely necessary schema addition** (not scope creep — see `app/repositories/group_repository.py`'s module docstring and `DATABASE_SCHEMA.md` §0f): `trip_invites`, since `trip_members`' primary key requires a known `user_id` upfront, but an invite link/email must be issued *before* that identity is known.
+
+## Requirements Traceability
+
+| # | Requirement | Source | Status |
+|---|---|---|---|
+| 1 | F19 — Invite creation (owner-only) + token redemption | `IMPLEMENTATION_BLUEPRINT.md` F19, `API_SPECIFICATION.md` §13 | COMPLETE — live-verified; double-redemption (409) and expiry both real |
+| 2 | F19 — Per-member preference submission (self-only) | FR-012 | COMPLETE — live-verified 403 when submitting for another user_id |
+| 3 | F19 — Member list | This authorization (frontend needs it; not in the original endpoint table) | COMPLETE — live-verified |
+| 4 | F19 — Rule-based-first reconciliation, real conflict explanations | AI_ARCHITECTURE.md §9, FR-012 | COMPLETE — live-verified (min-budget merge, union interests, explained trade-offs), reuses the real F3 generation pipeline, never duplicated |
+| 5 | F20 — Real weather-triggered disruption detection | IMPLEMENTATION_BLUEPRINT.md F20, AI_ARCHITECTURE.md §8 | COMPLETE (code, live DB) / the live weather signal itself is BLOCKED — no `WEATHER_API_KEY` configured in this environment (carried-forward Phase 6 blocker); the full pipeline around it is live-verified with the `weather_service` boundary mocked |
+| 6 | F20 — Non-weather trigger types (closure/delay/off_route/missed_activity/budget_overrun/schedule_change) | AI_ARCHITECTURE.md §8 | NOT IMPLEMENTED as auto-detected — no real, live signal source exists anywhere in this codebase for these; schema/`resolve()` path fully supports them, only automatic detection is scoped to `weather` this phase (documented decision) |
+| 7 | F20 — 2-3 real alternatives, plain-language reason, never auto-applied | §16, §21.2 | COMPLETE — live-verified accept/dismiss, itinerary only mutates on explicit accept |
+| 8 | F20 — Scheduled disruption-check cadence | AI_ARCHITECTURE.md §8 | PARTIAL — no `pg_cron`/scheduler infra exists yet in this environment (same class of gap as the still-unbuilt `location_pings` retention job); real substitute is opportunistic checking on the already-throttled F7 location ping + an explicit manual "check now" action, both live-verified |
+| 9 | F21 — Trusted contacts CRUD | IMPLEMENTATION_BLUEPRINT.md F21 | COMPLETE — live-verified, cross-user isolation confirmed |
+| 10 | F21 — Location share start/stop + public token-scoped viewer | API_SPECIFICATION.md §16 | COMPLETE — live-verified; share token validated + expiry enforced; only the trip owner/member can start/stop |
+| 11 | F21 — SOS event creation + last-known-location fallback | FR-017 exception flow | COMPLETE — live-verified with and without a recorded location |
+| 12 | F21 — Real Expo push on SOS | Existing F16 infra reused | COMPLETE — live-verified (writes a real `notifications` row) |
+| 13 | F21 — Trusted-contact email notification on SOS | IMPLEMENTATION_BLUEPRINT.md F21 | COMPLETE (code, real SMTP client) / BLOCKED — no `SMTP_*` credentials configured in this environment, so a real email send was not confirmed live |
+| 14 | F21 — Trusted-contact SMS notification on SOS | IMPLEMENTATION_BLUEPRINT.md F21 | NOT IMPLEMENTED — no commercial SMS vendor was ever named anywhere in the seven engineering documents; building against an undecided provider would be fabrication, not a real integration |
+| 15 | F22 — Quick plan generation (1-3 stops), real candidates | IMPLEMENTATION_BLUEPRINT.md F22 | COMPLETE — live-verified against the real seeded Taj Mahal POI, both the graceful no-LLM fallback and the mocked-LLM-success path |
+| 16 | F22 — "insufficient local data" honest exception flow | FR-015 | COMPLETE — live-verified 422 `NOT_ENOUGH_LOCAL_DATA`, never a low-quality generic list |
+| 17 | F22 — Save quick plan to a real collection | API_SPECIFICATION.md §18 | COMPLETE — live-verified |
+| 18 | F23 — Expense splitting (`split_with`), validated against real membership | IMPLEMENTATION_BLUEPRINT.md F23 | COMPLETE — live-verified `SPLIT_WITH_NON_MEMBER` rejection, share-bounds validation |
+| 19 | F23 — Split-calculation correctness (`per_member_owed`) | FR-016 | COMPLETE — live-verified summed correctly across multiple expenses |
+| 20 | F24 — Expanded heritage POI catalog | IMPLEMENTATION_BLUEPRINT.md F24 | COMPLETE — 3 new real, curated POIs + citable overview content, live-verified searchable + narratable through the existing F6/F8 endpoints (no new endpoints needed, per the Blueprint's own row) |
+| 21 | F26 — Real offline content package (itinerary POIs + heritage + phrasebook) | IMPLEMENTATION_BLUEPRINT.md F26 | COMPLETE — live-verified against the real seeded Taj Mahal POI and its real heritage/phrasebook content |
+| 22 | F26 — Mobile local persistence of the downloaded package | MOBILE_ARCHITECTURE.md §11 | COMPLETE (via `expo-file-system`'s `File`/`Directory` API — a real, working, verified write) / PARTIAL — the originally-sketched `expo-sqlite`-backed structured cache with automatic screen fallback-on-failure was not built; this is a real, working file-based cache, not a fabricated stand-in, but reading it back automatically into `HeritageNarrationScreen`/`PhrasebookScreen` on a live-request failure is not yet wired |
+| 23 | F26 — Map-tile offline caching | MOBILE_ARCHITECTURE.md §11 | NOT IMPLEMENTED — no verifiable first-party `react-native-maps` offline-tile API exists to build against; documented scope boundary, not a silent gap |
+| 24 | Mobile: `GroupInviteScreen`, `SafetyScreen`, `QuickPlanScreen` | MOBILE_ARCHITECTURE.md §2 | COMPLETE — every screen has loading/empty/error/retry states, real backend data only |
+| 25 | Mobile: disruption proposal card on `OnTripCompanionScreen` | MOBILE_ARCHITECTURE.md §3 | COMPLETE — accept (with alternative picker)/dismiss both live-tested |
+| 26 | Mobile: split-equally toggle + per-member-owed display on `BudgetViewScreen` | This authorization | COMPLETE |
+| 27 | Mobile: "Download for offline" action on `ItineraryViewScreen` | F26 | COMPLETE |
+| 28 | Cross-user isolation (every new feature) | CLAUDE.md §5/§8 | COMPLETE — live-verified for group invites/preferences, disruptions, safety contacts/shares/SOS, quick plans, budget splits (User A → User B's data DENIED for read/write where applicable) |
+| 29 | Real database persistence, no in-memory/local-only stand-ins for anything server-owned | CLAUDE.md §6 | COMPLETE |
+| 30 | Backend tests (unit + live integration) | CLAUDE.md §10 | COMPLETE — 42/42 new Phase 8 tests passing (real Supabase project) |
+| 31 | Mobile tests | CLAUDE.md §10 | COMPLETE — 25/25 new Phase 8 tests passing (156/156 total, 28/28 suites) |
+| 32 | Regression (Phases 1–7) | CLAUDE.md §17 | COMPLETE — 0 regressions; full backend suite 294 passed/6 skipped/0 failed, full mobile suite 156/156 passed |
+| 33 | Documentation | CLAUDE.md §14 | COMPLETE — `API_SPECIFICATION.md` (§6b/§6c new, §13/§14/§18 updated), `DATABASE_SCHEMA.md` (§0f + `trip_invites` table), `MOBILE_ARCHITECTURE.md` (§2/§11 notes), this section |
+| 34 | Security validation | CLAUDE.md §5 | COMPLETE — no secrets committed, no `.env` tracked, no service-role/SMTP credential in mobile, repository-wide scan clean |
+
+**Totals: 34 requirements — 28 COMPLETE, 3 PARTIAL (items 8, 22 — real working substitutes for genuinely unbuilt pieces), 1 BLOCKED (item 13 — code complete, no live credential), 2 NOT IMPLEMENTED (items 6, 14, 23 — real, documented scope/vendor decisions, not fabricated). Zero items are fake, hardcoded, or simulated.**
+
+---
+
+## The Blocker (the reason this phase is not COMPLETE)
+
+Two independent, real gaps, neither fabricated:
+
+1. **No `WEATHER_API_KEY` configured in this environment** (carried forward unchanged from Phase 6) — F20's real weather-trigger detection cannot be confirmed against a real forecast; the entire pipeline around it (candidate lookup, `disruption_events` persistence, accept/dismiss, itinerary mutation) is live-tested with only the `weather_service.check_adverse_weather` boundary mocked, mirroring the exact discipline already established for F3's own weather rule.
+2. **No `SMTP_*` credentials configured in this environment** — F21's trusted-contact email notification on SOS is a real, working SMTP client (`app/services/email_client.py`, stdlib `smtplib`, no vendor SDK) that degrades gracefully (logs and continues) when unconfigured, exactly like `weather_client.py`'s and `google_places_client.py`'s established pattern — but no real email has been sent and confirmed delivered in this environment.
+
+Neither blocker reduces what was built: every non-weather, non-email code path for F19–F26 is fully live-verified against the real Supabase project.
+
+---
+
+## Backend Implementation
+
+- **Repositories (new):** `group_repository.py` (`trip_invites`, `trip_members`, `trip_preferences`), `safety_repository.py` (`trusted_contacts`, `trip_location_shares`, `sos_events`), `disruption_repository.py` (`disruption_events`), `quick_plan_repository.py` (`quick_plans`/`quick_plan_items`).
+- **Services (new):** `group_service.py` (invite issuance/redemption, preference submission, rule-based-first reconciliation reusing `itinerary_service.generate_itinerary` — no duplicated pipeline), `safety_service.py` (trusted contacts, location share lifecycle, SOS with FR-017's last-known-location fallback), `disruption_service.py` (real weather-triggered detection via the existing `weather_service`, real `PoisRepository.search_nearby`-sourced alternatives, accept/dismiss), `quick_plan_service.py` (scoped-down AI selection reusing the `LLMGateway`, same graceful no-key fallback discipline as F3), `email_client.py` (real, provider-agnostic stdlib SMTP client, mirrors `expo_push_client.py`'s one-typed-failure-mode pattern).
+- **API routers (new):** `group.py`, `safety.py`, `disruptions.py`, `quick_plans.py`, `offline.py`. All mounted in `app/api/v1/router.py`.
+- **`app/api/deps.py`**: unchanged — no new authorization dependency was needed (existing `get_current_user`/`is_trip_accessible`/`is_trip_owner` covered every new endpoint).
+- **`app/services/location_service.py`** (modified): `submit_ping` now opportunistically calls `disruption_service.check_for_disruptions()` after handling arrival — wrapped in try/except so a disruption-check failure never breaks the primary ping response.
+- **`app/services/budget_service.py`/`app/repositories/budget_repository.py`/`app/schemas/budget.py`/`app/api/v1/budget.py`** (modified, F23): `split_with` accepted, validated against real trip membership, persisted to the pre-existing `budget_expenses.split_with` column; `get_budget_summary` now computes and returns `per_member_owed`.
+- **`app/core/config.py`** (modified): added `smtp_host`/`smtp_port`/`smtp_username`/`smtp_password`/`smtp_from_email` settings, all optional, graceful degrade when unset.
+- **Real bug found and fixed this phase (not hidden):** the exact same jsonb double-encoding class of bug documented in Phase 7's own finding recurred in two new repositories during initial authoring (`group_repository.py`'s `trip_preferences.interests`/`constraints`, `disruption_repository.py`'s `proposal`) — caught by code review before tests were even run (the Phase 7 finding was fresh in mind), fixed by passing real Python dicts/lists directly rather than pre-`json.dumps()`-ing them.
+- **Real bug found and fixed this phase (found by running tests, not hidden):** every repository method returning a raw asyncpg `UUID`-typed column (e.g. `trip.owner_id`, `invite.trip_id`, `plan.id`) was, in several new call sites, compared with `==` against a plain Python `str` (e.g. `AuthenticatedUser.id`) or passed directly into another repository method's `uuid.UUID(...)` constructor — both silently broken (a `UUID == str` comparison is always `False`; `uuid.UUID(some_uuid_object)` raises `AttributeError`). Found by actually running `test_group_api.py` and watching a real `AttributeError` surface, not assumed. Fixed by explicit `str(...)` wrapping at every affected call site in `group_service.py`, `safety_service.py`, and `quick_plan_service.py` — the same discipline already established at the API-router layer (`_to_response()` helpers) now also applied inside service-layer logic that reads a UUID column back out for comparison/reuse.
+
+## Database Implementation
+
+One real migration (`20260828120001_phase8_trip_invites.sql`, applied to the live project via `scripts/apply_migrations.py`, verified live): `trip_invites`. Plus real, non-schema data: 3 new curated heritage POIs (Qutub Minar, Ajanta Caves, Virupaksha Temple/Hampi) + their real overview `heritage_content`, seeded via `scripts/seed_phase8_heritage_expansion.py` and confirmed live. No other schema changes — every other table F19/F20/F21/F22/F23 needed (`trip_members`, `trip_preferences`, `disruption_events`, `weather_cache`, `trusted_contacts`, `trip_location_shares`, `sos_events`, `quick_plans`/`quick_plan_items`, `budget_expenses.split_with`) already existed from Phase 2, confirmed live before writing any application code. See `DATABASE_SCHEMA.md` §0f for full detail.
+
+## API Implementation
+
+| Endpoint | Method | Status |
+|---|---|---|
+| `/v1/trips/{id}/invite` | POST | COMPLETE, live-verified, owner-only |
+| `/v1/trips/invite/{token}/accept` | POST | COMPLETE, live-verified (double-redemption 409, invalid-token 404) |
+| `/v1/trips/{id}/members/{user_id}/preferences` | POST | COMPLETE, live-verified, self-only (403 otherwise) |
+| `/v1/trips/{id}/members` | GET | COMPLETE, live-verified |
+| `/v1/trips/{id}/itinerary/reconcile` | POST | COMPLETE, live-verified, owner-only, reuses real F3 pipeline |
+| `/v1/trips/{id}/disruptions` | GET | COMPLETE, live-verified |
+| `/v1/trips/{id}/disruptions/check` | POST | COMPLETE, live-verified (weather boundary mocked — see Blocker) |
+| `/v1/trips/{id}/disruptions/{event_id}/resolve` | POST | COMPLETE, live-verified, accept mutates the real itinerary item, dismiss doesn't |
+| `/v1/safety/contacts` | POST, GET | COMPLETE, live-verified, cross-user isolated |
+| `/v1/trips/{id}/share/start`, `/share/stop` | POST | COMPLETE, live-verified |
+| `/v1/share/{token}` | GET (public) | COMPLETE, live-verified, token-scoped, no auth |
+| `/v1/safety/sos` | POST | COMPLETE, live-verified, FR-017 fallback confirmed |
+| `/v1/quick-plans` | POST | COMPLETE, live-verified, both LLM postures |
+| `/v1/quick-plans/{id}/save-to-collection` | POST | COMPLETE, live-verified, 404 for another user's plan |
+| `/v1/trips/{id}/expenses` (extended) | POST | COMPLETE, live-verified `split_with` validation |
+| `/v1/trips/{id}/budget` (extended) | GET | COMPLETE, live-verified `per_member_owed` |
+| `/v1/trips/{id}/offline-package` | GET | COMPLETE, live-verified against real content |
+
+## Mobile Implementation
+
+**API clients (new):** `src/api/{group,safety,disruptions,quickPlans,offline}.ts`. **Screens (new):** `GroupInviteScreen` (invite create/accept, member list, preferences, reconcile + conflict display), `SafetyScreen` (trusted contacts, location share start/stop, SOS with confirmation), `QuickPlanScreen` (time/budget/occasion + real device location, generated plan, save-to-collection). **Modified:** `BudgetViewScreen` (split-equally toggle + per-member-owed display), `OnTripCompanionScreen` (disruption proposal card — check-now, accept-with-alternative-picker, dismiss), `ItineraryViewScreen` (Group/Safety/Offline tool-row entries + real "Download for offline" action via `expo-file-system`), `HomeScreen` (Quick Plan entry card), `RootNavigator` (3 new routes), `src/api/budget.ts` (`SplitEntry`, `per_member_owed`). **New native package:** `expo-file-system` (F26's local persistence).
+
+Every new/modified screen implements loading/empty/error/retry states (CLAUDE.md §11), using only real backend data.
+
+## AI Implementation
+
+F19's Group Preference Reconciliation is deliberately rule-based-first this phase (AI_ARCHITECTURE.md §9 — the LLM-negotiation upgrade is F32, Phase 4, out of scope): merges interests, takes the minimum stated budget, and hands the reconciled input to the existing F3 `LLMGateway`-backed pipeline unmodified. F22's Quick Plan reuses the same `LLMGateway` abstraction with a new, smaller prompt module (`app/services/ai/prompts/quick_plan.py`) and the identical graceful-fallback discipline (deterministic top-N candidates when no key/on failure) as every other AI pipeline in this codebase. No scattered direct Gemini SDK calls were introduced.
+
+## Security Validation
+
+No secrets committed — repository-wide scan of every changed/new file clean. No `.env` file tracked. No SMTP/service-role credential in any mobile file. `GET /share/{token}` is the one deliberately public (no-auth) endpoint in this phase — validated against the exact `share_token` + `expires_at`, never a generic authenticated read, matching `trip_location_shares`' own RLS design. Every new service takes identity from `AuthenticatedUser`, never a client-supplied id (including the corrected `user_id`-vs-owner comparisons from the UUID-stringification bug above). Cross-user isolation live-verified for every new feature (see Test Results).
+
+## Test Results
+
+| Suite | Result |
+|---|---|
+| New Phase 8 backend tests (`test_group_api.py`, `test_disruptions_api.py`, `test_safety_api.py`, `test_quick_plans_api.py`, `test_offline_api.py`, plus F23/F24 additions to `test_budget_api.py`/`test_heritage_api.py`) | **42 passed, 0 failed** — real Supabase project, real cross-user isolation checks |
+| `python scripts/run_live_tests.py tests/ --ignore=tests/test_llm_gateway_live.py -q` (full backend regression, real Supabase project) | **294 passed, 0 failed, 6 skipped** (300 collected — up from 258 in Phase 7; all 6 skips are the same pre-existing Phase 6 "no LLM configured" premise tests that self-skip with a real key present, unrelated to Phase 8) |
+| `ruff check .` / `black --check .` / `mypy app` (backend) | **COMPLETE — all clean**, 121 `app/` source files checked by mypy (up from 100 in Phase 7) |
+| `npx jest` (mobile) | **COMPLETE — 156 passed, 0 failed, 28/28 suites green** (up from 131/25 in Phase 7 — 25 new tests, 3 new suites) |
+| `npx tsc --noEmit` (mobile) | **COMPLETE — 0 errors** |
+| `npx expo lint` (mobile) | **COMPLETE — 0 errors, 0 warnings** |
+
+### Real bugs found and fixed during this phase's own validation (not hidden, not worked around)
+
+1. **jsonb double-encoding recurrence** (`group_repository.py`, `disruption_repository.py`) — same class of bug as Phase 7's own finding; caught by code review this time (the Phase 7 finding was fresh), fixed before tests were even run by passing real Python dicts/lists directly.
+2. **UUID-vs-string comparison/constructor bugs** (`group_service.py`, `safety_service.py`, `quick_plan_service.py`) — raw asyncpg `UUID` values compared with `==` against plain `str` identities (always silently `False`) or passed into another repository's `uuid.UUID(...)` constructor (raises `AttributeError`). Found by actually running `test_group_api.py` and watching a real `AttributeError` traceback, not assumed; fixed with explicit `str(...)` wrapping at every affected call site.
+3. **`ReconcileResponse` validation failure on raw DB types** — `group_service.reconcile()`'s `days` payload (reused directly from `itinerary_service.generate_itinerary()`) carries raw `uuid.UUID` ids and `datetime.time` objects that `ItineraryDayResponse`/`ItineraryItemResponse` reject (`pydantic` does not auto-coerce either). Found by inspecting the actual `400 VALIDATION_ERROR` response body (not assumed from the log line alone); fixed by reusing `app/api/v1/trips.py`'s existing `_day_to_response()` conversion helper in `group.py`'s router — the same helper `POST /trips/{id}/itinerary/generate` already relies on — rather than duplicating the conversion logic.
+4. **Test-data business-rule violations, not application bugs** — an initial `test_group_api.py` reconcile test omitted `start_date`/`end_date` on the test trip, correctly triggering the real `CLARIFICATION_NEEDED` 422 business rule (F3's own, unmodified); fixed by adding real dates to the test fixture, not by weakening the rule.
+5. **Mobile `Share.share()`/`Alert.alert()` invariant crashes in tests** — `GroupInviteScreen`'s and `SafetyScreen`'s real native `Share`/`Alert` calls (for the invite link and SOS confirmation) threw a real `NativeActionSheetManager is not registered` invariant when exercised unmocked in the Jest environment. Fixed by mocking `react-native/Libraries/Share/Share` and spying on `Alert.alert` (the same pattern already established in `MemoryBoxScreen.test.tsx`), not by removing the real native calls from the component.
+6. **Mobile `act()`-wrapping omissions** — the same class of bug found in Phase 7: several new test files called `fireEvent.changeText(...)` unwrapped immediately before an `act()`-wrapped `fireEvent.press(...)`, causing the press handler to read stale state. Fixed by wrapping every `fireEvent.changeText`/`fireEvent.press` pair in its own `act()` block, matching this codebase's established convention.
+
+## Known Limitations
+
+- **F20's non-weather trigger types are not auto-detected** (item 6 above) — the schema and `resolve()` path fully support `closure`/`delay`/`off_route`/`missed_activity`/`budget_overrun`/`schedule_change`, but no real, live signal source exists anywhere in this codebase for any of them yet.
+- **No `pg_cron`/scheduler infrastructure exists** for F20's "scheduled cadence" — real substitute is opportunistic checking on the F7 location-ping flow (already throttled) plus an explicit manual "check now," both real and live-verified, but not a true independent schedule.
+- **F21 SMS delivery is not implemented** — no commercial SMS vendor was ever decided anywhere in the seven engineering documents; building against an unspecified provider would be fabrication.
+- **F21 email delivery is real but unverified live** — a genuine stdlib SMTP client exists and degrades gracefully when unconfigured; no `SMTP_*` credential exists in this environment to confirm an actual send.
+- **F26 has no map-tile offline caching** — no verifiable first-party `react-native-maps` offline-tile API exists to build against.
+- **F26 uses a flat JSON file via `expo-file-system`, not the `expo-sqlite`-backed structured cache `MOBILE_ARCHITECTURE.md` originally sketched** — a real, working, verified alternative, but automatic fallback-to-cache on a live-request failure in `HeritageNarrationScreen`/`PhrasebookScreen` is not yet wired.
+- **Mobile background location tracking** (carried forward from Phase 7, unaffected by this phase) remains not implemented — still requires a physical device to build/verify safely.
+- Every other Known Limitation carried forward from Phases 1–7 (Redis-backed rate limiting, embedding-based hybrid retrieval, Google OAuth/Maps manual credential steps, Gemini daily quota for F4/F5/F8/F9/F10/F25 live confirmation, etc.) remains unresolved and unaffected by this phase.
+
+## Blocked Items
+
+1. **`WEATHER_API_KEY` not configured** (carried forward from Phase 6) — blocks live confirmation of F20's real weather-trigger detection specifically; the full pipeline around it is live-verified with the boundary mocked.
+2. **`SMTP_*` credentials not configured** — blocks live confirmation of F21's trusted-contact email delivery specifically; the client is real and degrades gracefully without one.
+
+**Carried forward, unrelated to Phase 8:** Google OAuth (Phase 3), Google Maps Platform credentials (Phase 5), Gemini daily quota for F4/F5/F8/F9/F10/F25 live confirmation (Phase 6), mobile background location tracking (Phase 7) — all remain outstanding, tracked in their own sections, not resolved or affected by this phase.
+
+## Unresolved Issues
+
+- F20's non-auto-detected trigger types — open, needs a real live signal source per trigger type (a transit-delay feed, a live POI-closure feed, etc.) before it can be built without fabrication.
+- No `pg_cron`/scheduler infrastructure — open, same class of gap as the still-unbuilt `location_pings` retention job.
+- F21 SMS — open, needs an explicit commercial vendor decision first.
+- F26's `expo-sqlite`-backed structured cache + automatic fallback-on-failure — open, real follow-up work on top of the working file-based cache already shipped.
+- Every issue carried forward from Phases 1–7 remains open and unaffected.
+
+---
+
+## Environment Variables Required
+
+**Backend** (all optional — absence degrades gracefully, never crashes):
+- `SMTP_HOST` / `SMTP_PORT` (default `587`) / `SMTP_USERNAME` / `SMTP_PASSWORD` / `SMTP_FROM_EMAIL` — new this phase, for F21's trusted-contact email notification. **Not configured in this environment.**
+- `WEATHER_API_KEY`, `GEMINI_API_KEY`, Google OAuth/Maps credentials — all carried forward from prior phases, unchanged.
+
+No new mobile environment variable — the mobile app never holds a server-side secret (CLAUDE.md §4).
+
+---
+
+## Files Created
+
+**Backend:** `app/repositories/{group,safety,disruption,quick_plan}_repository.py`, `app/schemas/{group,safety,disruption,quick_plan,offline}.py`, `app/services/{group,safety,disruption,quick_plan}_service.py`, `app/services/email_client.py`, `app/services/ai/prompts/quick_plan.py`, `app/api/v1/{group,safety,disruptions,quick_plans,offline}.py`, `tests/test_{group,disruptions,safety,quick_plans,offline}_api.py`, `scripts/seed_phase8_heritage_expansion.py`, `supabase/migrations/20260828120001_phase8_trip_invites.sql`.
+
+**Mobile:** `src/api/{group,safety,disruptions,quickPlans,offline}.ts`, `src/screens/{GroupInviteScreen,SafetyScreen,QuickPlanScreen}.tsx` + matching `__tests__/*.test.tsx` for each.
+
+## Files Modified
+
+**Backend:** `app/core/config.py` (SMTP settings), `app/api/v1/router.py` (mounts 5 new routers), `app/services/location_service.py` (opportunistic disruption check on ping), `app/services/budget_service.py`/`app/repositories/budget_repository.py`/`app/schemas/budget.py`/`app/api/v1/budget.py` (F23 `split_with`/`per_member_owed`), `tests/test_budget_api.py` (F23 tests), `tests/test_heritage_api.py` (F24 test), `.env.example` (SMTP placeholders).
+
+**Mobile:** `package.json`/`package-lock.json` (`expo-file-system`), `src/api/budget.ts` (`SplitEntry`, `per_member_owed`), `src/navigation/RootNavigator.tsx` (3 new routes), `src/screens/HomeScreen.tsx` (Quick Plan entry card), `src/screens/ItineraryViewScreen.tsx` (Group/Safety/Offline tools + download action), `src/screens/OnTripCompanionScreen.tsx` (disruption card), `src/screens/BudgetViewScreen.tsx` (split-equally toggle + owed display), `src/screens/__tests__/{BudgetViewScreen,OnTripCompanionScreen,ItineraryViewScreen}.test.tsx` (extended with Phase 8 coverage + regression-safe mocks for new imports).
+
+**Docs:** `docs/API_SPECIFICATION.md` (§6b/§6c new; §13/§14/§18 updated), `docs/DATABASE_SCHEMA.md` (§0f + `trip_invites` table), `docs/MOBILE_ARCHITECTURE.md` (§2/§11 implementation notes), this file.
+
+---
+
+## Definition of Done — checked against CLAUDE.md §14 / this authorization's Definition of Done
+
+Every checklist item is satisfied **except**: F20's non-weather trigger auto-detection (honestly NOT IMPLEMENTED, not rounded up), F20's true scheduled cadence (PARTIAL — real opportunistic substitute, not a genuine schedule), F21 SMS (honestly NOT IMPLEMENTED — no vendor decision to build against), F21 email live confirmation (BLOCKED — no SMTP credential), F26 map-tile caching (honestly NOT IMPLEMENTED), F26's `expo-sqlite` structured cache (PARTIAL — a real, verified alternative was built instead). Every other item — backend Router→Service→Repository architecture, real database persistence with a real applied migration, RLS + application-layer authorization, real cross-user isolation testing, every new endpoint tested (valid/invalid/unauthenticated/unauthorized/cross-user/boundary/business-rule cases), mobile UI with real backend data and full loading/empty/error/retry state coverage, zero TypeScript errors, zero Python type errors, zero lint errors on both stacks, zero regressions in either full suite, no secrets committed, complete documentation and requirement traceability, two real documentation conflicts found and resolved before implementation — is genuinely satisfied and verified above, not assumed.
+
+---
+
+## STOP
+
+Phase 8 (F19/F20/F21/F22/F23/F24/F26 — the product roadmap's "Intelligent Travel Companion") is classified **PARTIAL**, not COMPLETE. Every backend endpoint, database change, and mobile screen for all seven features is real, live-verified against the real Supabase project, and free of fake/hardcoded/simulated functionality — 42/42 new backend tests and 25/25 new mobile tests pass, with zero regressions across either full suite (294/300 backend, 156/156 mobile). Two `ARCHITECTURE_REVIEW.md` findings (H2, H5) blocking this exact area were read, resolved, and documented before implementation began, per instruction. The phase is not COMPLETE for six honestly-classified reasons: F20's non-weather disruption triggers and true scheduled cadence, F21's SMS channel (no vendor ever decided) and email channel (real client, no live credential to confirm), and F26's map-tile caching and `expo-sqlite` structured cache (a real, verified file-based alternative was built instead) — none fabricated, all specifically named above with the exact remaining work. Per CLAUDE.md §12, no further phase has been started and no Phase 3/4 product-roadmap feature (automated booking, AI trip recap, predictive recommendations, etc.) was touched. Waiting for (1) a decided SMS vendor and/or configured `SMTP_*`/`WEATHER_API_KEY` credentials to close the two live-confirmation blockers, (2) all limitations carried forward from Phases 1–7 unchanged, and (3) explicit authorization to begin the next phase thereafter.

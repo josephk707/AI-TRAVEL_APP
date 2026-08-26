@@ -128,6 +128,22 @@ class Settings(BaseSettings):
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_embedding_dimensions: int = 1536
 
+    # --- Safety/SOS trusted-contact email (Phase 8 — F21, IMPLEMENTATION_BLUEPRINT.md
+    # F21's "SMS/email provider for trusted-contact notification if contact
+    # isn't an app user"). No specific commercial SMS vendor was ever
+    # decided anywhere in the seven engineering documents, so SMS delivery
+    # is NOT implemented here (documented BLOCKED, PHASE_STATUS.md) rather
+    # than fabricated against an unspecified provider. Email uses a plain
+    # SMTP client (stdlib smtplib, app/services/email_client.py) — real,
+    # provider-agnostic, works with any SMTP relay via env vars. When
+    # unset, SOS still dispatches real Expo push + writes the sos_events
+    # row; only the non-app-user email leg degrades (never a hard failure).
+    smtp_host: str | None = Field(default=None)
+    smtp_port: int = 587
+    smtp_username: str | None = Field(default=None)
+    smtp_password: SecretStr | None = Field(default=None)
+    smtp_from_email: str | None = Field(default=None)
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]

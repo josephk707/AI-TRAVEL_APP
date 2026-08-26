@@ -8,12 +8,27 @@ matching the same reading already applied to F3's business-rule validator,
 
 from __future__ import annotations
 
-from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.exceptions import AppError, ForbiddenError, NotFoundError
 from app.repositories.budget_repository import BudgetRepository
+from app.repositories.group_repository import GroupRepository
 from app.repositories.trips_repository import TripsRepository
 from app.services import notification_service
 
 _TOLERANCE_PCT = 10.0
+
+
+def _compute_per_member_owed(expenses: list[dict]) -> dict[str, float]:
+    """F23 — split-calculation. Each expense's `amount * share` is
+    allocated to the named user_id, summed across every expense that
+    carries a split_with breakdown (expenses without one are entirely the
+    logging member's own, per F15's original single-payer model)."""
+    owed: dict[str, float] = {}
+    for expense in expenses:
+        for entry in expense.get("split_with") or []:
+            owed[entry["user_id"]] = owed.get(entry["user_id"], 0.0) + float(
+                expense["amount"]
+            ) * float(entry["share"])
+    return {uid: round(amount, 2) for uid, amount in owed.items()}
 
 
 async def get_budget_summary(trip_id: str, user_id: str) -> dict:
@@ -36,11 +51,17 @@ async def get_budget_summary(trip_id: str, user_id: str) -> dict:
         "total_spent": total_spent,
         "over_budget": over_budget,
         "expenses": expenses,
+        "per_member_owed": _compute_per_member_owed(expenses),
     }
 
 
 async def log_expense(
-    trip_id: str, user_id: str, category: str, amount: float, currency: str
+    trip_id: str,
+    user_id: str,
+    category: str,
+    amount: float,
+    currency: str,
+    split_with: list[dict] | None = None,
 ) -> tuple[dict, bool]:
     """Returns (expense_row, over_budget)."""
     trips_repo = TripsRepository()
@@ -50,8 +71,22 @@ async def log_expense(
     if not await trips_repo.is_trip_accessible(trip_id, user_id):
         raise ForbiddenError("You do not have access to this trip.")
 
+    if split_with:
+        group_repo = GroupRepository()
+        for entry in split_with:
+            split_user_id = entry["user_id"]
+            is_owner = split_user_id == str(trip["owner_id"])
+            if not is_owner and not await group_repo.is_member(trip_id, split_user_id):
+                raise AppError(
+                    "SPLIT_WITH_NON_MEMBER",
+                    "An expense can only be split with members of this trip.",
+                    422,
+                )
+
     budget_repo = BudgetRepository()
-    expense = await budget_repo.create_expense(trip_id, user_id, category, amount, currency)
+    expense = await budget_repo.create_expense(
+        trip_id, user_id, category, amount, currency, split_with
+    )
 
     total_spent = await budget_repo.total_spent(trip_id)
     planned = float(trip["budget_planned"]) if trip["budget_planned"] else None

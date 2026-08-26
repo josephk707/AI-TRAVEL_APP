@@ -15,14 +15,19 @@ from app.api.v1 import (
     auth,
     budget,
     collections,
+    disruptions,
+    group,
     heritage,
     location,
     memory,
     notifications,
+    offline,
     onboarding,
     phrasebook,
     pois,
+    quick_plans,
     reviews,
+    safety,
     translation,
     trips,
 )
@@ -42,3 +47,8 @@ api_v1_router.include_router(notifications.router)
 api_v1_router.include_router(phrasebook.router)
 api_v1_router.include_router(memory.router)
 api_v1_router.include_router(location.router)
+api_v1_router.include_router(group.router)
+api_v1_router.include_router(safety.router)
+api_v1_router.include_router(disruptions.router)
+api_v1_router.include_router(quick_plans.router)
+api_v1_router.include_router(offline.router)

@@ -7,6 +7,11 @@ import { apiGet, apiPost } from "./client";
 
 export type ExpenseCategory = "lodging" | "food" | "transport" | "activity" | "other";
 
+export interface SplitEntry {
+  user_id: string;
+  share: number;
+}
+
 export interface Expense {
   id: string;
   trip_id: string;
@@ -14,6 +19,7 @@ export interface Expense {
   category: ExpenseCategory;
   amount: number;
   currency: string;
+  split_with: SplitEntry[] | null;
   logged_at: string;
 }
 
@@ -23,6 +29,7 @@ export interface BudgetSummary {
   total_spent: number;
   over_budget: boolean;
   expenses: Expense[];
+  per_member_owed: Record<string, number>;
 }
 
 interface Envelope<T> {
@@ -45,11 +52,13 @@ export async function logExpense(
   category: ExpenseCategory,
   amount: number,
   currency = "INR",
+  splitWith?: SplitEntry[],
 ): Promise<LogExpenseResult> {
   const envelope = await apiPost<Envelope<Expense>>(`/v1/trips/${tripId}/expenses`, {
     category,
     amount,
     currency,
+    split_with: splitWith,
   });
   return { expense: envelope.data, overBudget: envelope.meta?.over_budget ?? false };
 }

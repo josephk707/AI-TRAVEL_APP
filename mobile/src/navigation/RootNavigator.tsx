@@ -9,6 +9,7 @@ import { BudgetViewScreen } from "../screens/BudgetViewScreen";
 import { ChatScreen } from "../screens/ChatScreen";
 import { CollectionsScreen } from "../screens/CollectionsScreen";
 import { ExploreScreen } from "../screens/ExploreScreen";
+import { GroupInviteScreen } from "../screens/GroupInviteScreen";
 import { HeritageNarrationScreen } from "../screens/HeritageNarrationScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ItineraryViewScreen } from "../screens/ItineraryViewScreen";
@@ -18,6 +19,8 @@ import { OnTripCompanionScreen } from "../screens/OnTripCompanionScreen";
 import { PhotoQAScreen } from "../screens/PhotoQAScreen";
 import { PhrasebookScreen } from "../screens/PhrasebookScreen";
 import { PoiDetailScreen } from "../screens/PoiDetailScreen";
+import { QuickPlanScreen } from "../screens/QuickPlanScreen";
+import { SafetyScreen } from "../screens/SafetyScreen";
 import { SignInScreen } from "../screens/SignInScreen";
 import { TranslateScreen } from "../screens/TranslateScreen";
 import { TripCreationScreen } from "../screens/TripCreationScreen";
@@ -60,6 +63,9 @@ export type RootStackParamList = {
   MemoryBox: { tripId: string };
   Phrasebook: { tripId: string };
   OnTripCompanion: { tripId: string };
+  GroupInvite: { tripId: string };
+  Safety: { tripId: string };
+  QuickPlan: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -99,6 +105,9 @@ export function RootNavigator(): React.JSX.Element {
               <Stack.Screen name="MemoryBox" component={MemoryBoxScreen} />
               <Stack.Screen name="Phrasebook" component={PhrasebookScreen} />
               <Stack.Screen name="OnTripCompanion" component={OnTripCompanionScreen} />
+              <Stack.Screen name="GroupInvite" component={GroupInviteScreen} />
+              <Stack.Screen name="Safety" component={SafetyScreen} />
+              <Stack.Screen name="QuickPlan" component={QuickPlanScreen} />
             </>
           ) : (
             <Stack.Screen name="Onboarding" component={OnboardingNavigator} />

@@ -207,3 +207,123 @@ async def test_another_user_cannot_view_or_log_expenses_on_someone_elses_trip(
             assert post_response.status_code == 403
         finally:
             await _delete_user(http, other.user_id)
+
+
+# ---------------------------------------------------------------------------
+# F23 — Budget Tracking with Group Expense Splitting (extends F15)
+# ---------------------------------------------------------------------------
+async def test_log_expense_with_split_with_computes_per_member_owed(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    trip_id = await _new_trip(client, real_session.auth_header, budget=10000)
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        member = await _create_real_session(http, "member")
+        try:
+            invite_response = await client.post(
+                f"/v1/trips/{trip_id}/invite",
+                json={"method": "link"},
+                headers=real_session.auth_header,
+            )
+            token = invite_response.json()["data"]["token"]
+            await client.post(f"/v1/trips/invite/{token}/accept", headers=member.auth_header)
+
+            log_response = await client.post(
+                f"/v1/trips/{trip_id}/expenses",
+                json={
+                    "category": "food",
+                    "amount": 1000,
+                    "currency": "INR",
+                    "split_with": [
+                        {"user_id": real_session.user_id, "share": 0.5},
+                        {"user_id": member.user_id, "share": 0.5},
+                    ],
+                },
+                headers=real_session.auth_header,
+            )
+            assert log_response.status_code == 201
+            expense = log_response.json()["data"]
+            assert len(expense["split_with"]) == 2
+
+            summary_response = await client.get(
+                f"/v1/trips/{trip_id}/budget", headers=real_session.auth_header
+            )
+            owed = summary_response.json()["data"]["per_member_owed"]
+            assert owed[real_session.user_id] == 500.0
+            assert owed[member.user_id] == 500.0
+        finally:
+            await _delete_user(http, member.user_id)
+
+
+async def test_split_calculation_sums_across_multiple_expenses(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    trip_id = await _new_trip(client, real_session.auth_header, budget=10000)
+
+    async with httpx.AsyncClient(timeout=15) as http:
+        member = await _create_real_session(http, "member2")
+        try:
+            invite_response = await client.post(
+                f"/v1/trips/{trip_id}/invite",
+                json={"method": "link"},
+                headers=real_session.auth_header,
+            )
+            token = invite_response.json()["data"]["token"]
+            await client.post(f"/v1/trips/invite/{token}/accept", headers=member.auth_header)
+
+            for amount in (600, 400):
+                await client.post(
+                    f"/v1/trips/{trip_id}/expenses",
+                    json={
+                        "category": "food",
+                        "amount": amount,
+                        "currency": "INR",
+                        "split_with": [{"user_id": member.user_id, "share": 0.5}],
+                    },
+                    headers=real_session.auth_header,
+                )
+
+            summary_response = await client.get(
+                f"/v1/trips/{trip_id}/budget", headers=real_session.auth_header
+            )
+            owed = summary_response.json()["data"]["per_member_owed"]
+            assert owed[member.user_id] == 500.0
+        finally:
+            await _delete_user(http, member.user_id)
+
+
+async def test_split_with_a_non_member_is_rejected(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    trip_id = await _new_trip(client, real_session.auth_header, budget=10000)
+
+    response = await client.post(
+        f"/v1/trips/{trip_id}/expenses",
+        json={
+            "category": "food",
+            "amount": 500,
+            "currency": "INR",
+            "split_with": [{"user_id": str(uuid.uuid4()), "share": 1.0}],
+        },
+        headers=real_session.auth_header,
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "SPLIT_WITH_NON_MEMBER"
+
+
+async def test_split_share_out_of_bounds_is_rejected(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    trip_id = await _new_trip(client, real_session.auth_header, budget=10000)
+
+    response = await client.post(
+        f"/v1/trips/{trip_id}/expenses",
+        json={
+            "category": "food",
+            "amount": 500,
+            "currency": "INR",
+            "split_with": [{"user_id": real_session.user_id, "share": 1.5}],
+        },
+        headers=real_session.auth_header,
+    )
+    assert response.status_code == 400

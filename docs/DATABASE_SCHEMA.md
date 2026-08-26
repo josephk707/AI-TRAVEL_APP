@@ -77,6 +77,17 @@ No other schema changes this phase — `favorites`, `collections`/`collection_it
 
 ---
 
+### 0f. Phase 8 (F19/F20/F21/F22/F23/F24/F26 — Blueprint's product-roadmap "Phase 2: Intelligent Travel Companion") Implementation Changelog
+
+| Change | Detail | Migration |
+|---|---|---|
+| `trip_invites` — new table (`id`, `trip_id`, `invited_by`, `method`, `email`, `token`, `status`, `created_at`, `expires_at`, `accepted_by`, `accepted_at`) | F19's `POST /trips/{id}/invite` must issue a redeemable token BEFORE the invited person's identity is known (a link/email invite) — but `trip_members`' primary key `(trip_id, user_id)` requires a known `user_id` upfront, so a pending row can't be created there. This table holds that pending state; the real `trip_members` row is only ever created — directly as `invite_status='accepted'` — at the moment `POST /trips/invite/{token}/accept` succeeds, so `is_trip_accessible()`'s existing "any `trip_members` row = access" check never needed to change. | `20260828120001` |
+| 3 new real, curated heritage POIs + their real overview `heritage_content` (Qutub Minar/Delhi, Ajanta Caves/Maharashtra, Virupaksha Temple/Hampi/Karnataka) seeded via `scripts/seed_phase8_heritage_expansion.py` | F24's "expanded heritage POI catalog" — genuine catalog growth (not padding), citing UNESCO/ASI documentation, mirroring Phase 6's `seed_heritage_content.py` maintainer-script precedent. | data-only, no schema change |
+
+No other schema changes this phase — `trip_members`, `trip_preferences`, `disruption_events`, `weather_cache`, `trusted_contacts`, `trip_location_shares`, `sos_events`, `quick_plans`/`quick_plan_items`, and `budget_expenses.split_with` all already existed from Phase 2 with exactly the shape F19/F20/F21/F22/F23 needed — only application code (Router→Service→Repository→API, plus mobile) was missing, confirmed by `docs/PHASE_STATUS.md`'s own Phase 2 note that these tables existed "with no application code reading/writing them yet."
+
+---
+
 ## 1. Extensions
 
 ```sql
@@ -244,6 +255,34 @@ create policy "trip_members_select" on public.trip_members
   for select using (
     auth.uid() = user_id
     or exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
+  );
+```
+
+### `trip_invites` (Phase 8 — pending invite tokens, F19 Group Planning)
+
+```sql
+create table public.trip_invites (
+  id           uuid primary key default gen_random_uuid(),
+  trip_id      uuid not null references public.trips(id) on delete cascade,
+  invited_by   uuid not null references public.profiles(id) on delete cascade,
+  method       text not null check (method in ('link', 'email')),
+  email        text,
+  token        text not null unique default encode(gen_random_bytes(24), 'hex'),
+  status       text not null default 'pending' check (status in ('pending', 'accepted', 'expired')),
+  created_at   timestamptz not null default now(),
+  expires_at   timestamptz not null default (now() + interval '14 days'),
+  accepted_by  uuid references public.profiles(id) on delete set null,
+  accepted_at  timestamptz,
+  check (method <> 'email' or email is not null)
+);
+alter table public.trip_invites enable row level security;
+-- Only the trip owner can see/manage invites they issued — the redemption
+-- path (validate-by-token) is backend-mediated via the service-role
+-- connection, never a direct client RLS read (same pattern as
+-- trip_location_shares below).
+create policy "trip_invites_owner" on public.trip_invites
+  for all using (
+    exists (select 1 from public.trips t where t.id = trip_id and t.owner_id = auth.uid())
   );
 ```
 

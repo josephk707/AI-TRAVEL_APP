@@ -8,11 +8,15 @@ silently accepted if consent was never granted.
 
 from __future__ import annotations
 
+import logging
+
 from app.core.exceptions import AppError, ForbiddenError, NotFoundError
 from app.repositories.location_repository import LocationRepository
 from app.repositories.pois_repository import PoisRepository
 from app.repositories.trips_repository import TripsRepository
 from app.services import analytics_service, notification_service
+
+logger = logging.getLogger("app.services.location")
 
 _NEARBY_RADIUS_M = 1500.0
 _ARRIVAL_RADIUS_M = 200.0
@@ -83,6 +87,18 @@ async def submit_ping(trip_id: str, user_id: str, lat: float, lng: float) -> dic
     nearby = await _nearby_recommendations(
         lat, lng, arrival["itinerary_item_id"] if arrival else None
     )
+
+    # F20 — opportunistic disruption check on the real, already-throttled
+    # ping cadence (no pg_cron infra exists yet to run this on a true
+    # schedule — see disruption_service.py's module docstring). Never
+    # blocks or fails the ping response itself.
+    try:
+        from app.services import disruption_service
+
+        await disruption_service.check_for_disruptions(trip_id)
+    except Exception:  # noqa: BLE001 - disruption checking must never break a location ping
+        logger.warning("disruption_check_failed", extra={"trip_id": trip_id}, exc_info=True)
+
     return {"arrival_event": arrival, "nearby": nearby}
 
 

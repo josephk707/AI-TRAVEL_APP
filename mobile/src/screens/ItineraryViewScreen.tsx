@@ -2,11 +2,13 @@ import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import * as FileSystem from "expo-file-system";
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 
 import { ApiError } from "../api/client";
+import { fetchOfflinePackage } from "../api/offline";
 import { fetchItinerary, fetchTrip, ItineraryDay, Trip } from "../api/trips";
 import { ItineraryItemCard } from "../components/ItineraryItemCard";
 import { LoadingView } from "../components/LoadingView";
@@ -32,6 +34,8 @@ export function ItineraryViewScreen(): React.JSX.Element {
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [refreshing, setRefreshing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState<string | null>(null);
 
   // Resolves the next LoadState without setting state itself (matches
   // PoiDetailScreen.tsx's resolveDetail/loadState split) so the mount
@@ -70,6 +74,29 @@ export function ItineraryViewScreen(): React.JSX.Element {
       setRefreshing(false);
     });
   }, [resolveItinerary]);
+
+  const downloadForOffline = useCallback(async () => {
+    setDownloading(true);
+    setDownloadMessage(null);
+    try {
+      const pkg = await fetchOfflinePackage(tripId);
+      const directory = new FileSystem.Directory(FileSystem.Paths.document, "offline-packages");
+      if (!directory.exists) directory.create({ intermediates: true });
+      const file = new FileSystem.File(directory, `${tripId}.json`);
+      if (!file.exists) file.create();
+      file.write(JSON.stringify(pkg));
+      setDownloadMessage(
+        `Saved ${pkg.pois.length} place(s), ${pkg.heritage_content.length} heritage section(s), ` +
+          `and ${pkg.phrasebook_entries.length} phrase(s) for offline use.`,
+      );
+    } catch (error) {
+      setDownloadMessage(
+        error instanceof ApiError ? error.message : "Couldn't download this trip for offline use.",
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }, [tripId]);
 
   if (state.status === "loading") {
     return (
@@ -121,7 +148,30 @@ export function ItineraryViewScreen(): React.JSX.Element {
             testID="open-on-trip-companion-button"
             onPress={() => navigation.navigate("OnTripCompanion", { tripId })}
           />
+          <ToolButton
+            icon="people-outline"
+            label="Group"
+            testID="open-group-invite-button"
+            onPress={() => navigation.navigate("GroupInvite", { tripId })}
+          />
+          <ToolButton
+            icon="shield-checkmark-outline"
+            label="Safety"
+            testID="open-safety-button"
+            onPress={() => navigation.navigate("Safety", { tripId })}
+          />
+          <ToolButton
+            icon="cloud-download-outline"
+            label={downloading ? "Saving…" : "Offline"}
+            testID="download-offline-button"
+            onPress={() => void downloadForOffline()}
+          />
         </View>
+        {downloadMessage && (
+          <Text style={styles.downloadMessage} testID="download-message">
+            {downloadMessage}
+          </Text>
+        )}
       </View>
 
       {totalStops === 0 ? (
@@ -194,9 +244,10 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.title, color: colors.text },
   subtitle: { ...typography.body, color: colors.textMuted },
-  toolsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
-  toolButton: { alignItems: "center", gap: 2, flex: 1 },
+  toolsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
+  toolButton: { alignItems: "center", gap: 2, minWidth: 64 },
   toolButtonLabel: { ...typography.caption, color: colors.primary },
+  downloadMessage: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm },
   content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl * 2 },
   daySection: { gap: spacing.sm },
   dayHeading: { ...typography.subtitle, color: colors.text },

@@ -30,8 +30,9 @@ async def get_budget(
 async def log_expense(
     trip_id: str, body: ExpenseCreateRequest, user: AuthenticatedUser = Depends(get_current_user)
 ) -> Envelope[ExpenseResponse]:
+    split_with = [entry.model_dump() for entry in body.split_with] if body.split_with else None
     expense, over_budget = await budget_service.log_expense(
-        trip_id, user.id, body.category, body.amount, body.currency
+        trip_id, user.id, body.category, body.amount, body.currency, split_with
     )
     meta = Meta(over_budget=over_budget) if over_budget else None
     return Envelope(data=ExpenseResponse.model_validate(_expense_to_response(expense)), meta=meta)

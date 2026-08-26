@@ -8,6 +8,12 @@ import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-nativ
 
 import { ApiError } from "../api/client";
 import {
+  checkForDisruptions,
+  DisruptionEvent,
+  listDisruptions,
+  resolveDisruption,
+} from "../api/disruptions";
+import {
   ArrivalEvent,
   fetchNearby,
   NearbyPoi,
@@ -43,6 +49,8 @@ export function OnTripCompanionScreen(): React.JSX.Element {
   const [arrival, setArrival] = useState<ArrivalEvent | null>(null);
   const [nearby, setNearby] = useState<NearbyPoi[]>([]);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [disruptions, setDisruptions] = useState<DisruptionEvent[]>([]);
+  const [checkingDisruptions, setCheckingDisruptions] = useState(false);
   const watchSubscription = useRef<Location.LocationSubscription | null>(null);
 
   const resolveItinerary = useCallback(async (): Promise<LoadState> => {
@@ -78,6 +86,43 @@ export function OnTripCompanionScreen(): React.JSX.Element {
       watchSubscription.current?.remove();
     };
   }, []);
+
+  const loadDisruptions = useCallback(() => {
+    listDisruptions(tripId)
+      .then((events) => setDisruptions(events.filter((e) => e.status === "proposed")))
+      .catch(() => undefined);
+  }, [tripId]);
+
+  useEffect(() => {
+    loadDisruptions();
+  }, [loadDisruptions]);
+
+  const checkNow = useCallback(async () => {
+    setCheckingDisruptions(true);
+    try {
+      await checkForDisruptions(tripId);
+      loadDisruptions();
+    } catch {
+      // A failed disruption check is not worth a screen-level error — the
+      // traveller can simply try again, and the next automatic location
+      // ping will also retry it.
+    } finally {
+      setCheckingDisruptions(false);
+    }
+  }, [tripId, loadDisruptions]);
+
+  const resolveNow = useCallback(
+    async (event: DisruptionEvent, decision: "accept" | "dismiss", alternativeIndex?: number) => {
+      try {
+        await resolveDisruption(tripId, event.id, decision, alternativeIndex);
+        setDisruptions((prev) => prev.filter((e) => e.id !== event.id));
+        if (decision === "accept") load();
+      } catch {
+        // Leave the card visible so the traveller can retry.
+      }
+    },
+    [tripId, load],
+  );
 
   const pingNow = useCallback(
     async (lat: number, lng: number) => {
@@ -222,6 +267,39 @@ export function OnTripCompanionScreen(): React.JSX.Element {
         </View>
       )}
 
+      <View style={styles.disruptionsHeader}>
+        <Text style={styles.sectionHeading}>Plan updates</Text>
+        <Pressable onPress={() => void checkNow()} disabled={checkingDisruptions} testID="check-disruptions-button">
+          <Text style={styles.checkNowText}>
+            {checkingDisruptions ? "Checking…" : "Check now"}
+          </Text>
+        </Pressable>
+      </View>
+
+      {disruptions.map((event) => (
+        <View key={event.id} style={styles.disruptionCard} testID={`disruption-${event.id}`}>
+          <Text style={styles.disruptionReason}>{event.proposal.reason}</Text>
+          {event.proposal.alternatives.map((alt, index) => (
+            <Pressable
+              key={alt.poi_id}
+              style={styles.alternativeRow}
+              onPress={() => void resolveNow(event, "accept", index)}
+              testID={`accept-alternative-${event.id}-${index}`}
+              accessibilityRole="button"
+            >
+              <Text style={styles.alternativeText}>Switch to {alt.poi_name}</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+            </Pressable>
+          ))}
+          <Pressable
+            onPress={() => void resolveNow(event, "dismiss")}
+            testID={`dismiss-disruption-${event.id}`}
+          >
+            <Text style={styles.dismissText}>Dismiss</Text>
+          </Pressable>
+        </View>
+      ))}
+
       <Text style={[styles.sectionHeading, styles.remainingHeading]}>Remaining stops</Text>
 
       {state.status === "loading" && (
@@ -299,6 +377,33 @@ const styles = StyleSheet.create({
   arrivalText: { ...typography.body, color: colors.success },
   nearbySection: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: 2 },
   nearbyItem: { ...typography.caption, color: colors.textMuted },
+  disruptionsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+  },
+  checkNowText: { ...typography.caption, color: colors.primary },
+  disruptionCard: {
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    backgroundColor: "#FDF3D8",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  disruptionReason: { ...typography.body, color: colors.text },
+  alternativeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+  },
+  alternativeText: { ...typography.body, color: colors.primary },
+  dismissText: { ...typography.caption, color: colors.textMuted, alignSelf: "flex-end" },
   sectionHeading: { ...typography.subtitle, color: colors.text, marginHorizontal: spacing.lg },
   remainingHeading: { marginTop: spacing.md },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
