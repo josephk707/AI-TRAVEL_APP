@@ -49,7 +49,7 @@ async function authHeader(): Promise<Record<string, string>> {
 }
 
 async function request<T>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   options: { signal?: AbortSignal; body?: unknown } = {},
 ): Promise<T> {
@@ -106,4 +106,46 @@ export function apiGet<T>(path: string, signal?: AbortSignal): Promise<T> {
 
 export function apiPost<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>("POST", path, { body: body ?? {}, signal });
+}
+
+export function apiPatch<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>("PATCH", path, { body: body ?? {}, signal });
+}
+
+export async function apiDelete(path: string, signal?: AbortSignal): Promise<void> {
+  await request<undefined>("DELETE", path, { signal });
+}
+
+/** multipart/form-data POST — the one request shape `request()` above
+ * can't express (it always JSON-encodes `body`). Used only by F9's
+ * photo upload (API_SPECIFICATION.md §8), which is genuinely a file
+ * upload, not a JSON payload. */
+export async function apiPostFormData<T>(path: string, formData: FormData): Promise<T> {
+  const url = `${env.apiBaseUrl}${path}`;
+  const auth = await authHeader();
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json", ...auth },
+      body: formData,
+    });
+  } catch (cause) {
+    throw new ApiError(0, "Network request failed. Is the backend reachable?", "NETWORK_ERROR", cause);
+  }
+
+  const body: unknown = await response.json().catch(() => undefined);
+
+  if (!response.ok) {
+    if (response.status === 401 && "Authorization" in auth) {
+      notifyUnauthorized();
+    }
+    if (isErrorEnvelope(body)) {
+      throw new ApiError(response.status, body.error.message, body.error.code, body.error.details);
+    }
+    throw new ApiError(response.status, `Request failed with status ${response.status}`);
+  }
+
+  return body as T;
 }

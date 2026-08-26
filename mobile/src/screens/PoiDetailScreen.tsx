@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import React, { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +16,7 @@ import { Card } from "../components/Card";
 import { LoadingView } from "../components/LoadingView";
 import { MapErrorBoundary } from "../components/MapErrorBoundary";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, spacing, typography } from "../theme/tokens";
+import { colors, radius, spacing, typography } from "../theme/tokens";
 
 type LoadState =
   | { status: "loading" }
@@ -47,6 +48,8 @@ function formatOpeningHours(hours: Record<string, unknown> | null): string[] {
  * exception-flow wording used elsewhere in this product for unconfirmed
  * hours), and a small map centered on the place. */
 export function PoiDetailScreen(): React.JSX.Element {
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList, "PoiDetail">>();
   const route = useRoute<RouteProp<RootStackParamList, "PoiDetail">>();
   const insets = useSafeAreaInsets();
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
@@ -146,6 +149,24 @@ export function PoiDetailScreen(): React.JSX.Element {
                   : "Not confirmed — verify on arrival"}
               </DetailRow>
             </Card>
+
+            {loadState.poi.category === "heritage" && (
+              <Pressable
+                style={({ pressed }) => [styles.heritageCard, pressed && styles.heritageCardPressed]}
+                onPress={() =>
+                  navigation.navigate("HeritageNarration", {
+                    poiId: loadState.poi.id,
+                    poiName: loadState.poi.name,
+                  })
+                }
+                accessibilityRole="button"
+                testID="heritage-story-button"
+              >
+                <Ionicons name="book-outline" size={20} color={colors.primaryText} />
+                <Text style={styles.heritageCardText}>Read the heritage story</Text>
+                <Ionicons name="chevron-forward" size={18} color={colors.primaryText} />
+              </Pressable>
+            )}
           </View>
         </ScrollView>
       )}
@@ -185,6 +206,17 @@ const styles = StyleSheet.create({
   name: { ...typography.title, color: colors.text },
   address: { ...typography.body, color: colors.textMuted },
   detailCard: { gap: spacing.md, marginTop: spacing.sm },
+  heritageCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.primary,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  heritageCardPressed: { opacity: 0.85 },
+  heritageCardText: { ...typography.subtitle, color: colors.primaryText, flex: 1 },
   detailRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
   detailTextGroup: { flex: 1 },
   detailLabel: { ...typography.caption, color: colors.textMuted },

@@ -95,6 +95,24 @@ export function HomeScreen(): React.JSX.Element {
 
       <Pressable
         style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
+        onPress={() => navigation.navigate("TripsList")}
+        accessibilityRole="button"
+        testID="my-trips-button"
+      >
+        <View style={styles.exploreIconBadge}>
+          <Ionicons name="airplane-outline" size={24} color={colors.primaryText} />
+        </View>
+        <View style={styles.exploreTextGroup}>
+          <Text style={styles.exploreTitle}>Plan a trip</Text>
+          <Text style={styles.exploreSubtitle}>
+            Let Yatra AI build you a personalised itinerary
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
         onPress={() => navigation.navigate("Explore")}
         accessibilityRole="button"
         testID="explore-places-button"
@@ -105,6 +123,22 @@ export function HomeScreen(): React.JSX.Element {
         <View style={styles.exploreTextGroup}>
           <Text style={styles.exploreTitle}>Explore places</Text>
           <Text style={styles.exploreSubtitle}>Search heritage sites, food, and more nearby</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
+        onPress={() => navigation.navigate("Translate")}
+        accessibilityRole="button"
+        testID="translate-button"
+      >
+        <View style={styles.exploreIconBadge}>
+          <Ionicons name="language-outline" size={24} color={colors.primaryText} />
+        </View>
+        <View style={styles.exploreTextGroup}>
+          <Text style={styles.exploreTitle}>Translate a phrase</Text>
+          <Text style={styles.exploreSubtitle}>Hindi, Telugu, Malayalam, Kannada, and more</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
       </Pressable>

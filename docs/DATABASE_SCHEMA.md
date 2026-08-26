@@ -54,6 +54,16 @@ Every deviation from this document's originally-drafted SQL, found and fixed dur
 | `pois.external_ref` — added `unique` constraint | Needed for `ON CONFLICT (external_ref) DO UPDATE` in the backend's Google-Places-cache upsert (`app/repositories/pois_repository.py`) to be atomic/race-safe. Curated rows (`external_ref IS NULL`) are unaffected — Postgres `UNIQUE` permits any number of `NULL`s. | `20260825120017` |
 | `pois` — seeded 8 real, curated Indian heritage POIs (Taj Mahal, Red Fort, India Gate, Gateway of India, Mysore Palace, Golden Temple, Hawa Mahal, Meenakshi Amman Temple) | Reference/seed data (genuine coordinates and addresses, `source='curated'`), same category of seed as `interests` (Phase 2) — lets F6's search/nearby/detail endpoints return real data with no Google Maps API key configured. `is_heritage_flagship` deliberately left at its default (`false`): curating the launch flagship narration set is F8's decision, not F6's. | `20260825120017` |
 
+### 0d. Phase 6 (F3/F4/F5 AI Core, F8/F9/F10/F25 AI Extensions) Implementation Changelog
+
+| Change | Detail | Migration |
+|---|---|---|
+| `itinerary_items.weather_flag` (boolean, default false) + `itinerary_items.weather_alternative_suggestion` (text) — new columns | `ARCHITECTURE_REVIEW.md` H7 found the PRD §16 outdoor-activity weather-flagging business rule missing from the itinerary generation pipeline's validation steps. Implementing it needed a real place to persist the flag — `verify_on_arrival` was considered but rejected since that column is specifically documented as "opening hours unknown," a different, unrelated condition; overloading it would have been a silent semantic change. A new, explicitly-named column pair is the correct fix. | `20260826120001` |
+| `heritage_content` — seeded 9 real, curated content rows (overview layer for all 8 Phase-5 POIs, plus one `deep` layer section for the Taj Mahal) via `scripts/seed_heritage_content.py` | Genuine, citable historical content (not scraped, not AI-generated), each row's `source_citation` naming the type of authoritative reference (UNESCO/ASI/state tourism board documentation) per this table's own "vetted reference" requirement. This is Phase 6's content-authoring step for F8 — `ARCHITECTURE_REVIEW.md` H4 noted no admin tool exists for this; the resolution adopted here is a maintainer script (equivalent to using `/docs`), not a UI, matching H4's own recommended options. | data-only, no schema change |
+| `heritage_content_embeddings` — **not yet populated** | Requires `scripts/embed_heritage_content.py`, itself gated on a configured `GEMINI_API_KEY` (BLOCKED in this environment). The overview narration retrieval path does not need embeddings at all (a plain `poi_id`+`layer` filter, `AI_ARCHITECTURE.md` §5.2 step 1) — only section-level semantic navigation does. | none pending |
+
+No other schema changes this phase — `trips`, `itinerary_days`, `itinerary_items`, `trip_raw_notes`, `ai_conversations`, `ai_messages`, `feedback_signals`, `weather_cache` all already existed from Phase 2 with exactly the shape F3/F4/F5 needed.
+
 ---
 
 ## 1. Extensions
@@ -306,6 +316,8 @@ create table public.itinerary_items (
                        check (status in ('planned','confirmed','skipped','completed')),
   source            text not null default 'ai' check (source in ('ai','user','imported')),
   verify_on_arrival boolean not null default false,   -- opening hours unknown (§16 business rule)
+  weather_flag      boolean not null default false,    -- Phase 6, H7 fix: adverse-forecast outdoor item
+  weather_alternative_suggestion text,                 -- Phase 6: plain-language indoor alternative
   notes             text,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()

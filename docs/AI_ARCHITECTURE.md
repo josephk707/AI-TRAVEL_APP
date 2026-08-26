@@ -7,6 +7,8 @@ Per PRD Section 19: *"AI is the core of this product, not a bolt-on feature."* T
 
 ## 1. LLM Gateway — Provider Abstraction
 
+**Phase 6 implementation note:** the PRD deliberately left the LLM vendor unnamed; this project's chosen provider is **Google Gemini** (`app/services/ai/gemini_adapter.py`, the sole call site for the `google-genai` SDK). Text/structured generation uses `gemini-2.5-flash` (fast, cheap — itinerary generation, idea extraction, conversational modification, translation) or `gemini-2.5-pro` (stronger reasoning, used for plain unstructured `complete()` calls); embeddings use `gemini-embedding-001` truncated to 1536 dimensions via `output_dimensionality`, matching the `vector(1536)` columns already fixed in `DATABASE_SCHEMA.md`. All three are config values (`Settings.gemini_text_model`/`gemini_reasoning_model`/`gemini_embedding_model`), not hardcoded, per this section's own "config value, not architectural commitment" principle below. `LLM_PROVIDER=gemini` is the only value currently supported; a second adapter would only need to implement the same `LLMGateway` protocol.
+
 The PRD deliberately does not name an LLM vendor (§26.4, §41.2 lists "LLM/AI provider" as an external dependency, TBC). This is implemented as a single internal interface so the concrete provider is a config value, not an architectural commitment:
 
 ```
@@ -45,11 +47,18 @@ Concrete adapters (`AnthropicAdapter`, `OpenAIAdapter`, etc.) implement this int
 3. LLM composition
    - LLMGateway.complete() with a structured-output schema (day-by-day items, times, cost estimates)
    - system prompt fixes tone (companion, not travel-agent-formal — §5.3) and forbids inventing POIs not present in the candidate set from step 2 (prevents hallucinated venues)
-4. Business-rule validation (deterministic, NOT delegated to the LLM)
-   - total cost vs. budget (>10% tolerance → flag, §16)
+4. Business-rule validation (deterministic, NOT delegated to the LLM;
+   `app/services/business_rules.py`)
+   - total cost vs. budget (>10% tolerance → flag, §16) — always advisory, never blocks the plan
    - opening-hours conflicts → item marked verify_on_arrival if hours unknown
    - travel-time buffers between geographically distant stops
    - itinerary items must not overlap
+   - **outdoor-category items checked against `weather_cache` forecast for the relevant
+     date; adverse items flagged (`weather_flag`) with a suggested indoor/alternative swap
+     (`weather_alternative_suggestion`)** — the fifth check `ARCHITECTURE_REVIEW.md` H7 found
+     missing, implemented Phase 6 via a real OpenWeatherMap client
+     (`app/services/weather_client.py`) cached in `weather_cache`; degrades to "do not flag"
+     (never guesses) when no `WEATHER_API_KEY` is configured
 5. Persist trips/itinerary_days/itinerary_items; set trips.generation_status
 6. Return to client
 ```
@@ -278,7 +287,7 @@ Full test-tooling detail (framework choices, CI gating) lives in `TESTING_PLAN.m
 
 ## 12. Cost Controls (§38 risk: "LLM/API cost overrun at scale")
 
-- Rate limiting at the API layer (`API_SPECIFICATION.md` §1) is the first line of defense.
+- Rate limiting at the API layer (`API_SPECIFICATION.md` §1) is the first line of defense. **Phase 6 implementation:** `app/core/rate_limit.py`, an in-process per-user token bucket (10 req/min on every AI endpoint — itinerary generate/modify, translate text/speech, photo-qa). This is the PRD §26.4 Caching row's own documented Alternative for `ARCHITECTURE_REVIEW.md` H3 ("in-memory cache within the API layer for the earliest MVP"), adopted explicitly with the stated single-instance constraint recorded — it is NOT correct once this backend runs as more than one instance, and must be replaced with a Redis-backed store before that happens.
 - `heritage_content_embeddings` retrieval is cached per `(poi_id, layer, section)` for a short TTL — repeated requests for the same static narration don't re-run retrieval+generation.
 - Weather/Maps responses cached (`weather_cache` table, §DATABASE_SCHEMA.md) rather than re-fetched per request.
 - Prompt/response size budgets enforced per endpoint (max input tokens truncates oldest chat history first, not silently drops the current request).

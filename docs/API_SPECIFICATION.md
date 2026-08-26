@@ -117,17 +117,19 @@ Save failure never blocks the user (FR-003 exception flow) — the endpoint retu
 
 **Response (success)**
 ```json
-{ "data": { "trip_id": "uuid", "generation_status": "succeeded",
+{ "data": { "trip_id": "uuid", "generation_status": "succeeded", "summary": "A sunrise Taj Mahal visit, ...",
   "days": [ { "day_number": 1, "date": "2026-10-10", "items": [
     { "id": "uuid", "poi_id": "uuid", "poi_name": "Taj Mahal", "planned_start": "06:00",
-      "estimated_duration_min": 150, "estimated_cost": 1100, "verify_on_arrival": false } ] } ],
-  "budget_summary": { "estimated_total": 14200, "planned_budget": 15000, "over_budget": false } } }
+      "estimated_duration_min": 150, "estimated_cost": 1100, "verify_on_arrival": false,
+      "weather_flag": false, "weather_alternative_suggestion": null } ] } ],
+  "budget_summary": { "estimated_total": 14200, "planned_budget": 15000, "over_budget": false, "tolerance_pct": 10 },
+  "conflicts": [] } }
 ```
 
 **Response (AI layer failure → fallback, FR-001 exception flow)**
 ```json
-{ "data": { "trip_id": "uuid", "generation_status": "fallback_used", "days": [ /* curated template */ ] },
-  "meta": { "degraded_mode": true, "message": "Live generation is temporarily unavailable — showing a curated Agra starter plan." } }
+{ "data": { "trip_id": "uuid", "generation_status": "fallback_used", "summary": "Here's a starter plan for Agra, India.", "days": [ /* real curated-POI schedule, no AI call */ ] },
+  "meta": { "degraded_mode": true, "message": "Live generation is temporarily unavailable — showing a curated starter plan." } }
 ```
 
 **Response (clarification needed, FR-001 alt. flow) — `422`**
@@ -136,7 +138,7 @@ Save failure never blocks the user (FR-003 exception flow) — the endpoint retu
   "details": { "missing_fields": ["budget"] } } }
 ```
 
-**Business-rule errors used across this group:** `BUDGET_EXCEEDED` (>10% tolerance, §16), `OUTSIDE_OPENING_HOURS`, `UNREALISTIC_TRAVEL_DISTANCE` (two far-apart cities same day, FR-005 exception flow) — all `422`, all include a proposed alternative in `details.alternative`.
+**Business-rule handling, as actually implemented (Phase 6, documented per CLAUDE.md §13):** `BUDGET_EXCEEDED` is **always an advisory flag** (`budget_summary.over_budget`), never a hard rejection of the whole plan — F15's own rule that budget tracking "never blocks or auto-cancels a plan item" is read here as applying to itinerary generation as a whole. `OUTSIDE_OPENING_HOURS` is implemented as presence-of-hours-data (`verify_on_arrival`), not fine-grained hour-range conflict detection — `pois.opening_hours` has no single documented schema precise enough to parse reliably (curated seed data and Google Places' raw format differ); a known, bounded limitation, not a silent gap. `UNREALISTIC_TRAVEL_DISTANCE`-class conflicts are returned as advisory `conflicts[]` strings on generation, and as a hard-rejected diff (with the pre-existing schedule left untouched) on `POST .../itinerary/modify` specifically, since F5's own diff must be validated as "allowed" before being applied.
 
 ---
 
@@ -178,19 +180,25 @@ Map-tile load failures are a client-side concern (degrade to list view, §24) �
 ## 7. Heritage Narration (RAG)
 *Backend: F8 · DB: `pois`, `heritage_content`, `heritage_content_embeddings`*
 
+**Phase 6 implementation note (documented per CLAUDE.md §13):** this section originally sketched a `sections` array response and a separate `POST /heritage/{poi_id}/report-missing` endpoint. As actually built, the narration endpoint returns one **composed, grounded narration string** (the LLM synthesizes the retrieved chunks into readable prose, per `AI_ARCHITECTURE.md` §5.2 — returning raw un-composed chunks would push grounding-contract enforcement onto the client) plus a `sources` list naming which curated sections were used. `report-missing` was not built — a 404 `POI_NOT_COVERED` already surfaces the gap to the traveller; a dedicated logging endpoint was judged genuinely separate scope (an admin/content-ops feature, not core RAG) and can be added later without any change to this contract.
+
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/heritage/{poi_id}/narration` | Bearer | `?layer=overview\|deep&section=` — returns RAG-grounded narration; see `AI_ARCHITECTURE.md` §RAG Pipeline for retrieval logic |
-| `POST` | `/heritage/{poi_id}/report-missing` | Bearer | Logs a coverage request when a POI isn't yet supported (FR-007 exception flow) |
+| `GET` | `/heritage/{poi_id}/narration` | Bearer | `?layer=overview\|deep&section=` — returns RAG-grounded narration; see `AI_ARCHITECTURE.md` §5.2 for retrieval logic |
 
 **Response (supported POI)**
 ```json
-{ "data": { "poi_id": "uuid", "layer": "overview",
-  "sections": [ { "title": "Entrance", "body": "...", "confidence": "high", "source_citation": "ASI heritage brief" } ] } }
+{ "data": { "poi_id": "uuid", "poi_name": "Taj Mahal", "layer": "overview",
+  "narration": "The Taj Mahal is an ivory-white marble mausoleum...",
+  "confidence": "high", "sources": ["Overview"] } }
 ```
 **Response (unsupported POI) — `404`**
 ```json
-{ "error": { "code": "POI_NOT_COVERED", "message": "This location isn't in our curated heritage catalog yet. We've logged your interest." } }
+{ "error": { "code": "POI_NOT_COVERED", "message": "We don't have verified heritage information for this place yet." } }
+```
+**Response (AI provider not configured/unavailable) — `503`**
+```json
+{ "error": { "code": "UPSTREAM_UNAVAILABLE", "message": "Heritage narration is temporarily unavailable — the AI provider is not configured." } }
 ```
 
 ---
@@ -200,33 +208,58 @@ Map-tile load failures are a client-side concern (degrade to list view, §24) �
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/heritage/{poi_id}/photo-qa` | Bearer | `multipart/form-data`: `photo` file + `question` text (or `question_audio`) |
+| `POST` | `/heritage/{poi_id}/photo-qa` | Bearer | `multipart/form-data`: `image` file + `question` text |
 
 **Response**
 ```json
-{ "data": { "answer": "This carved lattice is a jali screen — pierced marble used for ventilation and light...",
-  "confidence": "high", "grounded_sections": ["Main Dome"] } }
+{ "data": { "poi_id": "uuid",
+  "answer": "This carved lattice is a jali screen — pierced marble used for ventilation and light...",
+  "confidence": "high", "grounded": true } }
 ```
 **Response (low confidence, FR-008 business rule — still `200`, always visibly flagged, never suppressed)**
 ```json
-{ "data": { "answer": "I can't confidently identify this detail from the photo. It may be a later restoration addition — worth asking on-site staff.",
-  "confidence": "low", "grounded_sections": [] } }
+{ "data": { "poi_id": "uuid",
+  "answer": "I can't confidently identify this detail from the photo. It may be a later restoration addition — worth asking on-site staff.",
+  "confidence": "low", "grounded": false } }
 ```
 **Response (unusable image) — `422`**
 ```json
-{ "error": { "code": "IMAGE_UNUSABLE", "message": "That photo is too blurry/dark to analyze — please retake it." } }
+{ "error": { "code": "IMAGE_UNUSABLE", "message": "That image format isn't supported — please retake the photo (JPEG, PNG, or WebP)." } }
 ```
 
 ---
 
-## 9. Phrasebook
-*Backend: F10 (Phase 1), F25 live translation (Phase 2) · DB: `phrasebook_entries`*
+## 9. Phrasebook & Translation
+*Backend: F10 (Phase 1 curated + Phase 6 dynamic extension), F25 speech (Phase 6) · DB: `phrasebook_entries`*
+
+**Phase 6 implementation note (`ARCHITECTURE_REVIEW.md` M11):** the curated phrasebook (`GET /phrasebook/{region}`) covers fixed, pre-authored phrases only — M11 flagged that arbitrary typed-phrase translation had no endpoint. `POST /translate/text` (new this phase) closes that gap with a real Gemini call, not a lookup table — any language Gemini supports, not a hardcoded enum. `POST /translate/speech` was originally specified as proxying a separate "licensed live-translation provider" — since Gemini has native audio-input understanding, this project's `LLMGateway` handles it directly instead (one fewer vendor, `AI_ARCHITECTURE.md` §1's whole point). **Honesty boundary:** this is batch audio-clip translation (record → upload → transcribe+translate once), not a continuous real-time voice stream — see `speech_translation_service.py`'s module docstring.
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `GET` | `/phrasebook/{region}` | Bearer | `?language=&category=` |
 | `POST` | `/trips/{trip_id}/phrasebook/download` | Bearer, member | Bundles relevant entries for offline caching (ties to F26) |
-| `POST` | `/translate/speech` *(Phase 2)* | Bearer | Proxies a licensed live-translation provider; falls back with `502` + `meta.degraded_mode` to signal "use the static phrasebook instead" |
+| `POST` | `/translate/text` | Bearer | `{ "text": "...", "target_language": "Hindi" }` — arbitrary-phrase translation, real Gemini call |
+| `POST` | `/translate/speech` | Bearer | `multipart/form-data`: `audio` file + `target_language` — batch transcribe + translate |
+
+**Response — `POST /translate/text`**
+```json
+{ "data": { "original_text": "Where is the nearest railway station?", "target_language": "Hindi",
+  "translated_text": "निकटतम रेलवे स्टेशन कहाँ है?", "transliteration": "Nikatatam railway station kahaan hai?",
+  "note": null, "recognized_language": true } }
+```
+**Response — `POST /translate/speech`**
+```json
+{ "data": { "transcribed_text": "Where is the nearest railway station?", "target_language": "Hindi",
+  "translated_text": "निकटतम रेलवे स्टेशन कहाँ है?", "transliteration": "Nikatatam railway station kahaan hai?", "note": null } }
+```
+**Response (AI provider not configured/unavailable) — `503`**
+```json
+{ "error": { "code": "UPSTREAM_UNAVAILABLE", "message": "Translation is temporarily unavailable — the AI provider is not configured." } }
+```
+**Response (unusable audio) — `422`**
+```json
+{ "error": { "code": "AUDIO_UNUSABLE", "message": "That audio format isn't supported." } }
+```
 
 ---
 

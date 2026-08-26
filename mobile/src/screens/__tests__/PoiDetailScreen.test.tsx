@@ -11,8 +11,10 @@ jest.mock("../../api/pois", () => ({
 
 const mockFetchPoi = fetchPoi as jest.Mock;
 
+const mockNavigate = jest.fn();
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
+  useNavigation: () => ({ navigate: mockNavigate }),
   useRoute: () => ({ params: { poiId: "11111111-1111-4111-8111-111111111111" } }),
 }));
 
@@ -80,5 +82,28 @@ describe("PoiDetailScreen", () => {
 
     await waitFor(() => expect(screen.getByTestId("poi-detail-content")).toBeTruthy());
     expect(screen.getByText("Taj Mahal")).toBeTruthy();
+  });
+
+  it("shows the heritage-story entry for a heritage-category place and navigates on press", async () => {
+    mockFetchPoi.mockResolvedValue(TAJ_MAHAL);
+
+    await render(<PoiDetailScreen />);
+    await waitFor(() => expect(screen.getByTestId("heritage-story-button")).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId("heritage-story-button"));
+
+    expect(mockNavigate).toHaveBeenCalledWith("HeritageNarration", {
+      poiId: "11111111-1111-4111-8111-111111111111",
+      poiName: "Taj Mahal",
+    });
+  });
+
+  it("does not show the heritage-story entry for a non-heritage place", async () => {
+    mockFetchPoi.mockResolvedValue({ ...TAJ_MAHAL, category: "restaurant" });
+
+    await render(<PoiDetailScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("poi-detail-content")).toBeTruthy());
+    expect(screen.queryByTestId("heritage-story-button")).toBeNull();
   });
 });

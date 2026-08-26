@@ -39,6 +39,6 @@ module.exports = {
     web: {
       favicon: "./assets/favicon.png",
     },
-    plugins: ["expo-secure-store", "expo-web-browser", "expo-asset"],
+    plugins: ["expo-secure-store", "expo-web-browser", "expo-asset", "expo-audio"],
   },
 };

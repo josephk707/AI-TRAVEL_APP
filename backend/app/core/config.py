@@ -88,6 +88,32 @@ class Settings(BaseSettings):
     # which this being absent should crash the API.
     google_maps_api_key: SecretStr | None = Field(default=None)
 
+    # --- Weather (F3 H7 fix — outdoor-activity flagging, AI_ARCHITECTURE.md §2) ---
+    # OpenWeatherMap key. SecretStr: billable, abusable if leaked. When
+    # unset, the weather business-rule step is skipped (itinerary items are
+    # not flagged for weather) rather than the whole pipeline failing —
+    # documented, graceful degradation, never a hard crash (CLAUDE.md §9).
+    weather_api_key: SecretStr | None = Field(default=None)
+
+    # --- AI / LLM Gateway (Phase 6 — F3/F4/F5, AI_ARCHITECTURE.md §1) ---
+    # Provider is a config value, never a hardcoded vendor dependency: every
+    # AI-facing service in this codebase is written against the
+    # `LLMGateway` protocol (app/services/ai/llm_gateway.py), never against
+    # a vendor SDK directly. Google Gemini is the provider selected for
+    # this project (documented decision, this phase) — `llm_provider`
+    # exists so a future provider swap is a config change, not a rewrite.
+    llm_provider: Literal["gemini"] = "gemini"
+    gemini_api_key: SecretStr | None = Field(default=None)
+    # Model tiers are independently configurable per AI_ARCHITECTURE.md §12
+    # ("model tier is configurable per pipeline") — a cheaper/faster model
+    # for structured extraction/generation, a stronger one for
+    # conversational nuance, a dedicated embedding model whose output
+    # dimension MUST match the vector(1536) columns in DATABASE_SCHEMA.md.
+    gemini_text_model: str = "gemini-2.5-flash"
+    gemini_reasoning_model: str = "gemini-2.5-pro"
+    gemini_embedding_model: str = "gemini-embedding-001"
+    gemini_embedding_dimensions: int = 1536
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]

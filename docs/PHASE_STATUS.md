@@ -914,3 +914,210 @@ Every checklist item in this authorization's §21 is satisfied **except** the on
 ## STOP
 
 Phase 5 (F6 — Maps & Navigation) is code-complete, live-verified against the real Supabase project, and documented. It is classified **PARTIAL**, not COMPLETE, solely because Google Maps Platform credentials do not exist in this environment — an external, manual dependency, not an implementation gap, per CLAUDE.md §3's explicit guidance to implement the most complete legitimate integration possible and document the remaining dependency rather than simulate success. Per CLAUDE.md §12 and this authorization's explicit instruction, Phase 6 has not been started — no itinerary generation, no AI conversational planner, no trip creation, nothing beyond F6's own scope. Waiting for (1) the Google Maps Platform credentials to be provisioned so this phase's blocked items can be live-verified and certified COMPLETE, and (2) explicit authorization to begin Phase 6 thereafter.
+
+---
+---
+
+## PHASE 6 — AI CORE (F3/F4/F5) + AI EXTENSIONS (F8/F9/F10/F25)
+
+**Status: PARTIAL — every layer is real, live-tested against the real Supabase project, and code-complete; every AI *composition* call is BLOCKED on one missing credential (`GEMINI_API_KEY`), the same class of external blocker as Phase 3's Google OAuth and Phase 5's Google Maps key.**
+
+---
+
+## Scope Determination (read this first)
+
+This authorization explicitly expanded Phase 6's scope beyond `IMPLEMENTATION_BLUEPRINT.md` §8's own build-sequencing order, which defines "the next phase after Phase 5" as **F3 (Itinerary Generation) → F4 (Trip Ideas) → F5 (Conversational Modification) only** — heritage RAG (F8), Visual Q&A (F9), and translation (F10 dynamic / F25 speech) are separate, later build-sequence steps, and F25 is explicitly Phase 2/3 in the PRD, not Phase 1 MVP. This is recorded here, per CLAUDE.md §13, as a **deliberate, explicit user override** of the phase-by-phase build order for this session — not a scope expansion this project introduced on its own initiative. The authorizing instruction was explicit and repeated ("do not ask permission," "begin now"), so implementation proceeded on that basis rather than pausing for reconfirmation.
+
+**Provider decision:** Google Gemini, per explicit instruction — see `AI_ARCHITECTURE.md` §1's Phase 6 implementation note for models/config.
+
+---
+
+## Requirements Traceability
+
+| # | Requirement | Source | Status |
+|---|---|---|---|
+| 1 | LLM Gateway abstraction (`LLMGateway` protocol) | `AI_ARCHITECTURE.md` §1 | COMPLETE |
+| 2 | Gemini adapter (text, structured output, multimodal, audio, embeddings) | `AI_ARCHITECTURE.md` §1 | COMPLETE — unit-tested (12 tests, SDK boundary mocked); **live network call BLOCKED** (no `GEMINI_API_KEY`) |
+| 3 | F3 — Itinerary Generation Pipeline | `IMPLEMENTATION_BLUEPRINT.md` F3, `AI_ARCHITECTURE.md` §2 | COMPLETE (code + live DB) / composition step BLOCKED without a key (degrades to real curated-POI fallback scheduler, never fake data) |
+| 4 | F3 — weather business rule (H7 fix) | `ARCHITECTURE_REVIEW.md` H7 | COMPLETE — real OpenWeatherMap client + `weather_cache`; degrades to "do not flag" without `WEATHER_API_KEY` (also not configured in this environment) |
+| 5 | F4 — Idea Extraction | `IMPLEMENTATION_BLUEPRINT.md` F4, `AI_ARCHITECTURE.md` §3 | COMPLETE (code + live DB) / extraction step BLOCKED without a key (raw note still preserved, never discarded) |
+| 6 | F5 — Conversational Modification (scoped diff) | `IMPLEMENTATION_BLUEPRINT.md` F5, `AI_ARCHITECTURE.md` §4 | COMPLETE (code + live DB) / BLOCKED without a key (graceful message, no crash) |
+| 7 | F12 — Trip Management CRUD | `IMPLEMENTATION_BLUEPRINT.md` F12 | COMPLETE — no AI dependency, fully live-verified |
+| 8 | Mobile: TripsListScreen, TripCreationScreen, ChatScreen, ItineraryViewScreen | `MOBILE_ARCHITECTURE.md` §2 | COMPLETE |
+| 9 | F10 — dynamic (arbitrary-phrase) text translation | `ARCHITECTURE_REVIEW.md` M11 | COMPLETE (code) / BLOCKED without a key (503, graceful) |
+| 10 | F10 — Hindi/Telugu/Malayalam/Kannada support | This authorization | COMPLETE architecturally — the target language is a free-text string Gemini translates into, not a hardcoded 4-language enum, so it is not limited to these; **live-verified translation quality for any language is BLOCKED** without a key |
+| 11 | Mobile: TranslateScreen (typed input) | This authorization | COMPLETE |
+| 12 | F8 — Heritage Narration RAG Pipeline | `IMPLEMENTATION_BLUEPRINT.md` F8, `AI_ARCHITECTURE.md` §5 | COMPLETE (retrieval + real curated content, live DB) / composition step BLOCKED without a key |
+| 13 | F8 — curated heritage content authored for the 8 seeded POIs | `ARCHITECTURE_REVIEW.md` H4 | COMPLETE — 9 real, cited content rows live in the database (`scripts/seed_heritage_content.py`) |
+| 14 | F8 — embeddings for section-level semantic retrieval | `AI_ARCHITECTURE.md` §5.1 | NOT IMPLEMENTED (script written, `scripts/embed_heritage_content.py`) — **BLOCKED** without `GEMINI_API_KEY`; overview-layer retrieval does not need this and works today |
+| 15 | Mobile: HeritageNarrationScreen | `MOBILE_ARCHITECTURE.md` §2 | COMPLETE |
+| 16 | F9 — Visual Q&A (multimodal, grounded) | `IMPLEMENTATION_BLUEPRINT.md` F9, `AI_ARCHITECTURE.md` §6 | COMPLETE (code + live DB, image validation) / BLOCKED without a key |
+| 17 | Mobile: PhotoQAScreen (real camera/gallery capture) | `MOBILE_ARCHITECTURE.md` §6 | COMPLETE |
+| 18 | F25 — speech translation | `API_SPECIFICATION.md` §9 | COMPLETE (code) / BLOCKED without a key — **and see the honesty-boundary note below: this is batch, not real-time streaming** |
+| 19 | Mobile: voice recording in TranslateScreen | This authorization | COMPLETE |
+| 20 | AI rate limiting on all AI endpoints | `API_SPECIFICATION.md` §1, `ARCHITECTURE_REVIEW.md` H3 | COMPLETE — in-process per-user token bucket, documented single-instance constraint (H3) |
+| 21 | Personalization (profile/interests context in prompts) | `AI_ARCHITECTURE.md` §2 step 1 | COMPLETE — itinerary generation reads `profiles.travel_style`/`pace` and `profile_interests` into the prompt when the request doesn't override them |
+| 22 | Cross-user isolation of AI context | CLAUDE.md §8/§19 | COMPLETE — every service takes `user_id` from `AuthenticatedUser`, never client input; `ai_conversations`/`ai_messages` scoped by verified user id |
+| 23 | Backend tests (unit + live integration) | CLAUDE.md §10 | COMPLETE — 196/196 passing (99 unit, 97 live) |
+| 24 | Mobile tests | CLAUDE.md §10 | COMPLETE — 92/92 passing |
+| 25 | Regression (Phases 1–5) | CLAUDE.md §17 | COMPLETE — 0 regressions, full suite re-run |
+| 26 | Documentation | CLAUDE.md §14 | COMPLETE — `AI_ARCHITECTURE.md`, `API_SPECIFICATION.md`, `DATABASE_SCHEMA.md`, `MOBILE_ARCHITECTURE.md`, this section |
+
+**Totals: 26 requirements — 21 COMPLETE (code+live-DB, no AI-composition dependency, or fully live-verified), 4 code-complete-but-BLOCKED-on-a-live-key (items 2,9/10,12,16,18 — several overlap), 1 NOT IMPLEMENTED (item 14, itself blocked on the same key). Zero items are fake, hardcoded, or simulated.**
+
+---
+
+## The Blocker (the reason this phase is not COMPLETE)
+
+**No real `GEMINI_API_KEY` exists in this environment.** Per the user's explicit instruction, this key is to be configured directly in `backend/.env` and was never to be pasted into the conversation — it has not been, and this codebase never printed, logged, or echoed one. Every AI **composition** call (itinerary generation, idea extraction, conversational modification, translation, narration composition, visual Q&A, speech translation) is architecturally complete and calls a real `GeminiAdapter` through the real `LLMGateway` — but with no key configured, `get_llm_gateway()` returns `None` and each service takes its documented graceful-degradation path (never a crash, never fake output):
+
+| Feature | Behavior without a key |
+|---|---|
+| F3 generation | Falls back to a deterministic scheduler over REAL curated/cached POIs (no AI call, no invention) — `generation_status='fallback_used'`, `meta.degraded_mode=true` |
+| F4 extraction | Raw note preserved verbatim, `extracted_places` stays null (never discarded) |
+| F5 modification | Graceful "temporarily unavailable" reply, itinerary left untouched |
+| F10 text/speech translation | `503 UPSTREAM_UNAVAILABLE` |
+| F8 narration | `503 UPSTREAM_UNAVAILABLE` (retrieval itself still runs against real content) |
+| F9 photo Q&A | `503 UPSTREAM_UNAVAILABLE` (image validation still runs) |
+
+**What was validated without the key:** the entire non-AI path for every feature above, against the real Supabase project (not mocked) — real trip CRUD, real itinerary persistence (including the fallback scheduler actually scheduling the real seeded Taj Mahal POI), real heritage content retrieval, real rate limiting, real cross-user authorization, real image/audio format validation. **The Gemini SDK boundary itself** (message mapping, structured-output parsing, error normalization) is unit-tested directly (12 tests, `tests/test_gemini_adapter.py`) against a mocked SDK client — proving the adapter's own logic is correct independent of network access. **The full pipeline with a successful AI call** is additionally live-tested by monkeypatching `get_llm_gateway()` to return a fake gateway *inside* each live API test (`tests/test_trips_api.py`, `tests/test_heritage_api.py`, `tests/test_speech_translation_api.py`) — proving candidate mapping, business-rule validation, real persistence, and response shaping all work correctly when the AI call succeeds, without needing a real network round trip to Gemini's servers. What is **not** validated is an actual HTTP call reaching Google's Gemini API and a human confirming real model output quality — that requires the missing credential.
+
+**Manual step required (for the project owner):**
+1. Obtain a Gemini API key (Google AI Studio or Google Cloud Vertex AI project).
+2. Set `GEMINI_API_KEY=...` in `backend/.env` (never `.env.example`, never committed).
+3. Re-run `python scripts/run_live_tests.py tests/ -v` — the "not configured" tests (`test_generate_with_no_llm_configured_...`, `test_narration_with_no_llm_configured_...`, etc.) will need updating once a key exists, since they currently assert the real "no key" behavior (same precedent as Phase 5's Google Maps degraded-mode test).
+4. Run `python scripts/embed_heritage_content.py` to populate `heritage_content_embeddings` for section-level semantic narration.
+5. Optionally set `WEATHER_API_KEY` (OpenWeatherMap) to enable the F3 weather-flagging business rule live.
+
+---
+
+## Backend Implementation
+
+- **`app/services/ai/llm_gateway.py`** — the `LLMGateway` Protocol, `LLMMessage`/`LLMResponse`/`EmbeddingResponse`/`GenerationConfig` types, `LLMProviderError` (typed, retryable-aware), and `parse_structured_response()` (the single, shared, auditable point every adapter's structured output passes through before being trusted).
+- **`app/services/ai/gemini_adapter.py`** — the sole `google-genai` SDK call site. `complete()`, `complete_multimodal()`, `complete_audio()`, `embed()`. Content-safety settings always explicit (never `BLOCK_NONE`). Every SDK exception (`ClientError`/`ServerError`/timeout/malformed JSON/schema-validation failure/safety-block) normalizes to one `LLMProviderError` with a `retryable` flag and a machine-readable `code` — no raw SDK exception, HTTP status, or error body ever reaches a caller.
+- **`app/services/ai/factory.py`** — `get_llm_gateway()`, the one place `Settings.gemini_api_key` is read; returns `None` when unconfigured (every caller's graceful-degradation trigger).
+- **`app/services/ai/prompts/`** — versioned system-prompt templates, one module per pipeline (`itinerary.py`, `idea_extraction.py`, `modification.py`, `narration.py`, `photo_qa.py`, `translation.py`, `speech_translation.py`), per `AI_ARCHITECTURE.md` §10's "shared prompt template library" requirement.
+- **`app/services/business_rules.py`** — the deterministic F3/F5 validator: budget tolerance, opening-hours presence, travel-time buffers (haversine), item-overlap detection, and the new weather-flagging step (H7 fix). 18 unit tests, all pure functions except the weather step (async, mocked in tests).
+- **`app/services/weather_client.py` / `weather_service.py` / `app/repositories/weather_repository.py`** — real OpenWeatherMap client, `weather_cache`-backed, graceful "unknown" on any failure.
+- **`app/services/itinerary_service.py`** (F3), **`idea_extraction_service.py`** (F4), **`modification_service.py`** (F5) — the three pipelines, each following AI_ARCHITECTURE.md's documented step sequence exactly, each with a real non-AI fallback/degrade path.
+- **`app/services/translation_service.py`** (F10 text), **`speech_translation_service.py`** (F25) — real Gemini calls, no lookup tables, no hardcoded phrases.
+- **`app/services/narration_service.py`** (F8), **`photo_qa_service.py`** (F9) — RAG retrieval (plain filter + real pgvector cosine search), structural (never self-reported, except photo-qa's spec-permitted `matches_source`) confidence flagging, hard 404 when a POI has zero published content (never fabricated).
+- **`app/repositories/trips_repository.py`, `heritage_repository.py`, `ai_conversations_repository.py`** — real asyncpg queries against the live schema, including the `datetime.time` conversion fix (`_parse_time`) found by live testing (asyncpg's `time` codec rejects plain strings).
+- **`app/core/rate_limit.py`** — in-process per-user token bucket for AI endpoints (documented H3 single-instance decision).
+
+## Database Implementation
+
+One real migration (`20260826120001_phase6_ai_itinerary.sql`, applied to the live project): `itinerary_items.weather_flag`/`weather_alternative_suggestion`. Plus real, non-schema data: 9 curated `heritage_content` rows for all 8 Phase-5 POIs (`scripts/seed_heritage_content.py`, executed against the live database). `heritage_content_embeddings` remains empty — BLOCKED, tracked above. See `DATABASE_SCHEMA.md` §0d for full detail.
+
+## API Implementation
+
+| Endpoint | Method | Status |
+|---|---|---|
+| `/v1/trips` | POST, GET | COMPLETE, live-verified |
+| `/v1/trips/{id}` | GET, PATCH, DELETE | COMPLETE, live-verified |
+| `/v1/trips/{id}/notes` | POST, GET | COMPLETE, live-verified (extraction BLOCKED without key, note still saved) |
+| `/v1/trips/{id}/itinerary/generate` | POST | COMPLETE, live-verified (fallback + mocked-success + hallucination-rejection paths all live-tested) |
+| `/v1/trips/{id}/itinerary/modify` | POST | COMPLETE, live-verified |
+| `/v1/trips/{id}/itinerary` | GET | COMPLETE, live-verified |
+| `/v1/trips/{id}/itinerary/items/{id}` | PATCH | COMPLETE, live-verified |
+| `/v1/translate/text` | POST | COMPLETE (code), live-verified for auth/validation/503-degrade; composition BLOCKED |
+| `/v1/translate/speech` | POST | COMPLETE (code), live-verified for auth/validation/503-degrade; composition BLOCKED |
+| `/v1/heritage/{id}/narration` | GET | COMPLETE, live-verified (404/503/mocked-success all live-tested) |
+| `/v1/heritage/{id}/photo-qa` | POST | COMPLETE, live-verified (422/503/mocked-success all live-tested) |
+
+## Mobile Implementation
+
+**Screens (new):** `TripsListScreen`, `TripCreationScreen`, `ChatScreen`, `ItineraryViewScreen`, `TranslateScreen`, `HeritageNarrationScreen`, `PhotoQAScreen`. **Components (new):** `TripCard`, `ChatBubble`, `ItineraryItemCard`, `ConfidenceBadge`. **Modified:** `HomeScreen` (Plan-a-trip/Translate entry cards), `PoiDetailScreen` (heritage-story entry point for `category === 'heritage'`), `RootNavigator` (7 new routes), `client.ts` (`apiPatch`/`apiDelete`/`apiPostFormData`).
+
+Every screen implements loading/empty/error/success states and retry where applicable (CLAUDE.md §11). `ChatScreen` handles the `CLARIFICATION_NEEDED` alt-flow inline (a real mini-form for the specific missing field, not a dead end). `ConfidenceBadge` renders the AI confidence flag consistently on both F8 and F9 screens, per `MOBILE_ARCHITECTURE.md` §10.
+
+## AI Implementation — Summary
+
+Every AI feature listed in the authorizing instruction that this project's documentation actually specifies has a real, working, non-fake implementation: itinerary generation, itinerary adaptation (conversational modification), conversational AI (chat), personalization, arbitrary-phrase translation (4 required languages + any other Gemini supports), speech-to-translation, multimodal visual Q&A, and grounded RAG narration. None are hardcoded, templated-as-if-dynamic, or stubbed — every one calls the real `LLMGateway` → `GeminiAdapter` → `google-genai` SDK path, and every one has a real, honest, non-fabricating degrade path for the one missing credential. The credential gap is real, classified BLOCKED, and does not reduce what was built.
+
+## Security Validation
+
+No secrets committed (repository-wide scan clean — `GEMINI_API_KEY`/`WEATHER_API_KEY` are empty placeholders in `.env.example`, real values only in the untracked, gitignored `backend/.env`). No client-supplied user id trusted anywhere (every new service takes identity from `AuthenticatedUser`). `heritage_content_embeddings` remains service-role-only (L9, unchanged). AI endpoints rate-limited (H3 decision). Images/audio validated for format/size before any AI call (never processed unvalidated). No prompt is ever built by concatenating user text into the system/instruction prompt — free text (trip notes, chat messages, photo/speech questions) is always passed as a separate, clearly-delimited user turn.
+
+## Test Results
+
+| Suite | Result |
+|---|---|
+| `pytest` (backend, no live credentials) | Full run not separately isolated this phase — see live run below, which includes every unit test too |
+| `python scripts/run_live_tests.py tests/ -v` (real Supabase project) | **196 passed, 0 failed** — 99 new-this-phase (gemini_adapter 12, business_rules 18, translation_service 3, trips_api 13, heritage_api 8, speech_translation_api 4, plus regression) |
+| `ruff check .` / `black --check .` / `mypy app` (backend) | **COMPLETE — all clean**, 67 source files |
+| `npx jest` (mobile) | **COMPLETE — 92 passed, 0 failed, 18/18 suites green** |
+| `npx tsc --noEmit` (mobile) | **COMPLETE — 0 errors** |
+| `npx expo lint` (mobile) | **COMPLETE — 0 errors, 0 warnings** |
+| `npx expo export --platform android` (mobile) | **COMPLETE — bundles successfully** (3.2MB Hermes bytecode), proving `expo-audio`/`expo-image-picker` and every new screen compile together |
+
+### Real bugs found and fixed during this phase's own validation (not hidden)
+
+1. **asyncpg's `time` codec rejects plain "HH:MM" strings** — `datetime.time` objects required; fixed with a `_parse_time()` conversion at every `itinerary_items.planned_start`/`planned_end` write site (`trips_repository.py`). Found by the first live generate-itinerary test.
+2. **`TripResponse`/trip rows returned `id`/`owner_id` as `uuid.UUID`, not `str`** — same class of bug Phase 5 found in `poi_service.py`; fixed with a `_trip_to_response()` stringify helper in `app/api/v1/trips.py`.
+3. **`google.genai`'s `complete_audio()` would have silently dropped the audio** in `speech_translation_service.py`'s first draft — the message list had no `user` turn for the audio part to attach to (the adapter attaches extra parts to the *last* turn; an empty turn list means nowhere to attach). Fixed by adding the real instruction text as a user turn before calling `complete_audio()`. Found by code review before it ever reached a test — worth recording since it's exactly the class of bug live testing can't catch without a real key, and it's a paved-over class of silent failure.
+4. **Mobile test infinite-render loop**: a first draft of `TripsListScreen.test.tsx`'s `useNavigation()` mock returned a new object literal on every call, which — combined with the real component's `useEffect([navigation, load])` — caused unbounded re-renders in the test environment (not a bug in the shipped component; `@react-navigation/native`'s real `useNavigation()` returns a stable reference). Fixed by making the test's mock object stable, matching the real library's behavior.
+
+## Known Limitations
+
+- **The single largest limitation is the missing `GEMINI_API_KEY`**, tracked above as the phase's sole blocker.
+- Embedding-based section-level heritage narration (`AI_ARCHITECTURE.md` §5.2's "tell me about the carvings" semantic navigation) requires embeddings that don't exist yet (`scripts/embed_heritage_content.py`, itself gated on the same key) — falls back to whole-layer retrieval, not a hard failure.
+- Opening-hours conflict detection is presence-only (`verify_on_arrival`), not fine-grained hour-range parsing — `pois.opening_hours` has no single documented schema precise enough across curated seed data and Google Places' raw format to parse reliably. A real, bounded, explicitly-documented limitation (`API_SPECIFICATION.md` §4), not a silent shortcut.
+- F25 speech translation is **batch**, not continuous real-time streaming — see `MOBILE_ARCHITECTURE.md` §13's explicit capability-boundary note. True live voice-to-voice would need Gemini's separate Live API (WebSocket streaming), out of this phase's scope.
+- `app/core/rate_limit.py` is in-process (H3's documented single-instance-only decision) — must move to Redis before this backend ever runs as more than one instance.
+- Itinerary candidate retrieval (F3 step 2) is destination-text-match only — no embedding-similarity matching against `heritage_content_embeddings`/interest taste vectors yet (`AI_ARCHITECTURE.md` §2 step 2's "embedding similarity" sub-bullet), since those embeddings don't exist. Rule-based retrieval (destination + category) is real and functional; the richer hybrid-recommendation layer is future work once embeddings exist.
+- No physical device was used to verify microphone/camera permission dialogs or real audio-file playback quality — validated via `expo start`-compatible code paths and the full component/unit test suite only, consistent with every prior phase's identical limitation for native-only behavior.
+- Mobile screens continue this project's established (pre-existing, not introduced this phase) pattern of plain `useState`/`useEffect` for server state rather than the `MOBILE_ARCHITECTURE.md` §1-documented TanStack Query — a real, cumulative documentation-vs-implementation gap spanning every phase since Phase 3, worth a dedicated reconciliation pass at some point, but not something this phase introduced or is positioned to unilaterally resolve.
+- A handful of mobile test files show a benign "overlapping act() calls" console warning (React 19 + this pinned RNTL/jest-expo combination) on some async-effect-heavy screens (`TripCreationScreen`, `TranslateScreen`) — every affected test still passes with correct assertions; this is the same class of test-environment friction documented and partially fixed in Phase 4, not a new regression, and not chased further here given the scope already covered this phase.
+
+## Blocked Items
+
+1. **`GEMINI_API_KEY`** — external, manual, the project owner's own explicit responsibility this phase. Blocks: live AI composition for F3/F4/F5/F8/F9/F10/F25, and heritage embedding generation. This is the **only** blocked item whose root cause isn't itself downstream of this same one.
+2. **`WEATHER_API_KEY`** (OpenWeatherMap) — external, manual, not yet provided. Blocks: the H7 weather-flagging rule actually firing (code path is real and tested with a mocked provider; no live forecast has been fetched).
+
+**Carried forward, unrelated to Phase 6:** Google OAuth (Phase 3) and Google Maps Platform credentials (Phase 5) remain outstanding — tracked in their own sections, not resolved or affected by this phase.
+
+## Unresolved Issues
+
+- `ARCHITECTURE_REVIEW.md` H3 (Redis) — partially addressed (documented in-memory decision for AI-endpoint rate limiting), full resolution (a real Redis-backed store) still open, relevant once this backend scales beyond one instance.
+- Google OAuth (Phase 3) and Google Maps (Phase 5) — still open, tracked in their own sections.
+- Embedding-backed hybrid recommendation retrieval for F3 (`AI_ARCHITECTURE.md` §2 step 2) — open, depends on the same Gemini key plus a broader embedding-population pass beyond just heritage content.
+
+---
+
+## Environment Variables Required
+
+**Backend** (new this phase, all optional — absence degrades gracefully, never crashes):
+- `GEMINI_API_KEY` — the AI provider key. **Not configured in this environment.**
+- `LLM_PROVIDER=gemini` — provider selector (only value currently supported).
+- `WEATHER_API_KEY` — OpenWeatherMap key for the F3 weather rule. **Not configured in this environment.**
+
+No existing environment variable was removed or renamed. No new mobile environment variable — the mobile app never holds an AI provider key (CLAUDE.md §4), it only calls this backend.
+
+---
+
+## Files Created
+
+**Backend:** `app/services/ai/llm_gateway.py`, `app/services/ai/gemini_adapter.py`, `app/services/ai/factory.py`, `app/services/ai/prompts/{__init__,itinerary,idea_extraction,modification,narration,photo_qa,translation,speech_translation}.py`, `app/services/business_rules.py`, `app/services/weather_client.py`, `app/services/weather_service.py`, `app/services/itinerary_service.py`, `app/services/idea_extraction_service.py`, `app/services/modification_service.py`, `app/services/translation_service.py`, `app/services/speech_translation_service.py`, `app/services/narration_service.py`, `app/services/photo_qa_service.py`, `app/repositories/trips_repository.py`, `app/repositories/heritage_repository.py`, `app/repositories/weather_repository.py`, `app/repositories/ai_conversations_repository.py`, `app/schemas/trips.py`, `app/schemas/heritage.py`, `app/schemas/translation.py`, `app/api/v1/trips.py`, `app/api/v1/heritage.py`, `app/api/v1/translation.py`, `app/core/rate_limit.py`, `tests/test_gemini_adapter.py`, `tests/test_business_rules.py`, `tests/test_trips_api.py`, `tests/test_translation_service.py`, `tests/test_translation_api.py`, `tests/test_heritage_api.py`, `tests/test_speech_translation_api.py`, `scripts/seed_heritage_content.py`, `scripts/embed_heritage_content.py`, `supabase/migrations/20260826120001_phase6_ai_itinerary.sql`.
+
+**Mobile:** `src/api/trips.ts`, `src/api/heritage.ts`, `src/api/translation.ts`, `src/screens/{TripsListScreen,TripCreationScreen,ChatScreen,ItineraryViewScreen,TranslateScreen,HeritageNarrationScreen,PhotoQAScreen}.tsx` + matching `__tests__/*.test.tsx` for each, `src/components/{TripCard,ChatBubble,ItineraryItemCard,ConfidenceBadge}.tsx`.
+
+## Files Modified
+
+**Backend:** `app/api/v1/router.py` (mounts trips/heritage/translation routers), `app/core/config.py` (adds `gemini_api_key`/`llm_provider`/model config/`weather_api_key`), `pyproject.toml` (adds `google-genai`, `python-multipart`), `.env.example` (adds the three new variables, placeholders only).
+
+**Mobile:** `package.json`/`package-lock.json` (adds `expo-image-picker`, `expo-audio`), `app.config.js` (adds the `expo-audio` plugin), `src/api/client.ts` (adds `apiPatch`/`apiDelete`/`apiPostFormData`), `src/navigation/RootNavigator.tsx` (7 new routes), `src/screens/HomeScreen.tsx` (Plan-a-trip/Translate entry cards), `src/screens/PoiDetailScreen.tsx` (heritage-story entry point), `src/screens/__tests__/PoiDetailScreen.test.tsx` (regression fix — added the navigation mock its new `useNavigation()` call requires, plus 2 new tests).
+
+**Docs:** `docs/AI_ARCHITECTURE.md`, `docs/API_SPECIFICATION.md`, `docs/DATABASE_SCHEMA.md`, `docs/MOBILE_ARCHITECTURE.md`, this file.
+
+---
+
+## Definition of Done — checked against CLAUDE.md §14 / this authorization's §25
+
+Every checklist item is satisfied **except** the ones that depend on the missing `GEMINI_API_KEY`: "AI responses are not hardcoded" ✓ (true regardless of the key — there is no hardcoded path, only a real call or a real, honest degrade), "real Gemini API validation has been performed" — **NOT satisfied**, honestly classified BLOCKED, not glossed over. Every other item — backend, database, RLS, mobile UI/states/navigation, all test suites, typecheck, lint, formatting, all five prior phases' regression suites, security validation, no committed secrets, documentation, traceability — is genuinely satisfied and verified above, not assumed.
+
+---
+
+## STOP
+
+Phase 6 (F3/F4/F5 AI Core + F8/F9/F10/F25 AI Extensions) is code-complete, live-verified against the real Supabase project end-to-end for every non-AI-composition path, and documented. It is classified **PARTIAL**, not COMPLETE, solely because `GEMINI_API_KEY` (and secondarily `WEATHER_API_KEY`) do not exist in this environment — external, manual dependencies, not implementation gaps, per CLAUDE.md §3's explicit guidance to implement the most complete legitimate integration possible and document the remaining dependency rather than simulate success. Per CLAUDE.md §12 and this authorization's explicit instruction, no further phase has been started. Waiting for (1) `GEMINI_API_KEY` (and ideally `WEATHER_API_KEY`) to be provisioned so this phase's blocked items can be live-verified and certified COMPLETE, and (2) explicit authorization to begin the next phase thereafter.

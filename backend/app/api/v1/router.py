@@ -10,9 +10,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, onboarding, pois
+from app.api.v1 import auth, heritage, onboarding, pois, translation, trips
 
 api_v1_router = APIRouter()
 api_v1_router.include_router(auth.router)
 api_v1_router.include_router(onboarding.router)
 api_v1_router.include_router(pois.router)
+api_v1_router.include_router(trips.router)
+api_v1_router.include_router(translation.router)
+api_v1_router.include_router(heritage.router)

@@ -16,7 +16,8 @@ Companion to `IMPLEMENTATION_BLUEPRINT.md`. Implements PRD §25 (UX/UI Requireme
 | Auth client | `@supabase/supabase-js` with an Expo `SecureStore`-backed storage adapter | Matches the Supabase Auth decision in `IMPLEMENTATION_BLUEPRINT.md` §1.3; tokens never touch plain `AsyncStorage` |
 | Maps | `react-native-maps` (Google provider on both platforms) | Matches Google Maps Platform integration (Module 9) |
 | Location | `expo-location` + `expo-task-manager` (background task) | Needed for FR-006 arrival detection while the app is backgrounded |
-| Camera/Media | `expo-image-picker` + `expo-camera` | FR-008 Visual Q&A, FR-010 Memory Box uploads |
+| Camera/Media | `expo-image-picker` | FR-008 Visual Q&A (Phase 6). **Documented decision:** `launchCameraAsync`/`launchImageLibraryAsync` cover both camera capture and gallery pick without the separate live-camera-preview component `expo-camera` provides — that component isn't needed for a single-shot "attach a photo" flow. A shared `useCameraCapture()` hook was not extracted (§6 below originally proposed one) since `MemoryBoxScreen` (its second intended caller, F11) doesn't exist yet — one real call site (`PhotoQAScreen`) doesn't justify the abstraction yet; extract it when F11 is built. |
+| Voice/Speech | `expo-audio` | F25 speech translation (Phase 6) — `useAudioRecorder`/`useAudioRecorderState` for batch clip recording; see §13 below for the real-time-vs-batch boundary. |
 | Push | `expo-notifications` | Delivers via FCM/APNs under the hood — see `IMPLEMENTATION_BLUEPRINT.md` §1.2 |
 | Local storage/offline | `expo-sqlite` (structured offline cache: itinerary, heritage content, phrasebook) + `expo-file-system` (downloaded media/map tiles) | Backs F26 Offline Heritage Access (Phase 2) |
 | Forms/validation | `react-hook-form` + `zod` (schemas shared conceptually with backend Pydantic models) | Keeps client-side validation in sync with API contract shapes |
@@ -184,3 +185,9 @@ MVP (Phase 1) ships without the offline package feature itself (that's Phase 2 p
 ## 12. Build & Release (client half — full detail in `DEPLOYMENT_PLAN.md`)
 
 - EAS Build produces store-ready iOS/Android binaries; EAS Submit automates store upload; EAS Update ships JS-only patches over-the-air between store releases (for non-native-code fixes), consistent with the PRD's staged dev→staging→production promotion (§35) — OTA channels map to the same three environments.
+
+---
+
+## 13. F25 Speech Translation — Capability Boundary (Phase 6)
+
+`TranslateScreen`'s "🎤 Speak instead" control is **batch** audio capture, not a continuous live voice conversation: `useAudioRecorder` records a clip, the traveller taps stop, the whole clip uploads to `POST /translate/speech`, and a single transcription+translation comes back once processing completes (a few seconds' round trip, not a live captioned stream). This is stated explicitly because "live translation" language appears elsewhere in this product's naming (F25's own PRD title) — true continuous bidirectional voice-to-voice would require Gemini's separate Live API (WebSocket audio streaming) wired through a persistent connection on both client and server, which is materially more infrastructure than this phase's scope and is **not implemented**. The batch flow is real (genuine Gemini audio understanding, no canned response), just not real-time in the streaming sense.

@@ -5,10 +5,17 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthContext";
 import { LoadingView } from "../components/LoadingView";
 import { OnboardingNavigator } from "./OnboardingNavigator";
+import { ChatScreen } from "../screens/ChatScreen";
 import { ExploreScreen } from "../screens/ExploreScreen";
+import { HeritageNarrationScreen } from "../screens/HeritageNarrationScreen";
 import { HomeScreen } from "../screens/HomeScreen";
+import { ItineraryViewScreen } from "../screens/ItineraryViewScreen";
+import { PhotoQAScreen } from "../screens/PhotoQAScreen";
 import { PoiDetailScreen } from "../screens/PoiDetailScreen";
 import { SignInScreen } from "../screens/SignInScreen";
+import { TranslateScreen } from "../screens/TranslateScreen";
+import { TripCreationScreen } from "../screens/TripCreationScreen";
+import { TripsListScreen } from "../screens/TripsListScreen";
 import { colors } from "../theme/tokens";
 import { StyleSheet, View } from "react-native";
 
@@ -34,6 +41,13 @@ export type RootStackParamList = {
   Home: undefined;
   Explore: undefined;
   PoiDetail: { poiId: string };
+  TripsList: undefined;
+  TripCreation: undefined;
+  Chat: { tripId: string; interests?: string[]; useOwnIdeas?: boolean };
+  ItineraryView: { tripId: string };
+  Translate: undefined;
+  HeritageNarration: { poiId: string; poiName: string };
+  PhotoQA: { poiId: string; poiName: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -60,6 +74,13 @@ export function RootNavigator(): React.JSX.Element {
               <Stack.Screen name="Home" component={HomeScreen} />
               <Stack.Screen name="Explore" component={ExploreScreen} />
               <Stack.Screen name="PoiDetail" component={PoiDetailScreen} />
+              <Stack.Screen name="TripsList" component={TripsListScreen} />
+              <Stack.Screen name="TripCreation" component={TripCreationScreen} />
+              <Stack.Screen name="Chat" component={ChatScreen} />
+              <Stack.Screen name="ItineraryView" component={ItineraryViewScreen} />
+              <Stack.Screen name="Translate" component={TranslateScreen} />
+              <Stack.Screen name="HeritageNarration" component={HeritageNarrationScreen} />
+              <Stack.Screen name="PhotoQA" component={PhotoQAScreen} />
             </>
           ) : (
             <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
