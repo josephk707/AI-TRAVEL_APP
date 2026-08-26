@@ -268,7 +268,12 @@ async def test_generate_with_no_llm_configured_falls_back_to_real_curated_poi_sc
     """This environment genuinely has no GEMINI_API_KEY configured — this
     exercises that REAL current state end-to-end against the real Agra
     curated POI (Taj Mahal, migration 20260825120017)."""
-    assert ai_factory.get_llm_gateway() is None, "this test assumes no real Gemini key is set"
+    if ai_factory.get_llm_gateway() is not None:
+        pytest.skip(
+            "GEMINI_API_KEY is configured in this environment — this test's "
+            "premise (no provider configured) no longer holds; see "
+            "test_llm_gateway_live.py for the real-key equivalent."
+        )
 
     create_response = await client.post(
         "/v1/trips",
@@ -395,6 +400,13 @@ async def test_generate_rejects_a_hallucinated_candidate_index_without_crashing(
 async def test_modify_with_no_llm_configured_returns_a_graceful_message(
     client: AsyncClient, real_session: _RealSession
 ) -> None:
+    if ai_factory.get_llm_gateway() is not None:
+        pytest.skip(
+            "GEMINI_API_KEY is configured in this environment — this test's "
+            "premise (no provider configured) no longer holds; see "
+            "test_llm_gateway_live.py for the real-key equivalent."
+        )
+
     create_response = await client.post(
         "/v1/trips",
         json={

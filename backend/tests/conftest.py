@@ -6,6 +6,7 @@ from httpx import ASGITransport, AsyncClient
 
 import app.db.session as db_session_module
 from app.main import app
+from app.services.ai.factory import get_llm_gateway
 
 
 @pytest.fixture
@@ -45,3 +46,23 @@ async def _reset_db_pool_state():
     await _reset_pool()
     yield
     await _reset_pool()
+
+
+@pytest.fixture(autouse=True)
+def _reset_llm_gateway_cache():
+    """`get_llm_gateway()` is `@lru_cache`d — correct for production (one
+    process, one long-lived event loop), but a real, reproducible bug in
+    THIS test environment: `pytest-asyncio`'s default config gives every
+    test function its own event loop, while the cache keeps the SAME
+    `GeminiAdapter` (and the httpx async connection pool it holds
+    internally) alive across the whole pytest process. Once that adapter's
+    connections were opened against one test's event loop, ANY later test
+    that reaches it — even indirectly, even a test that doesn't itself
+    call Gemini — hits a real `RuntimeError: Event loop is closed` when
+    httpcore tries to close the stale connection. Found by actually running
+    the suite with a real `GEMINI_API_KEY` configured (Phase 6
+    certification pass), not assumed. Clearing the cache before/after every
+    test forces a fresh adapter bound to that test's own loop each time."""
+    get_llm_gateway.cache_clear()
+    yield
+    get_llm_gateway.cache_clear()

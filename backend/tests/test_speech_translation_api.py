@@ -120,7 +120,12 @@ async def test_translate_speech_rejects_an_unsupported_audio_format(
 async def test_translate_speech_with_no_llm_configured_returns_503_not_a_crash(
     client: AsyncClient, real_session: _RealSession
 ) -> None:
-    assert ai_factory.get_llm_gateway() is None, "this test assumes no real Gemini key is set"
+    if ai_factory.get_llm_gateway() is not None:
+        pytest.skip(
+            "GEMINI_API_KEY is configured in this environment — this test's "
+            "premise (no provider configured) no longer holds; see "
+            "test_llm_gateway_live.py for the real-key equivalent."
+        )
     response = await client.post(
         "/v1/translate/speech",
         files={"audio": ("clip.wav", _TINY_WAV_HEADER, "audio/wav")},

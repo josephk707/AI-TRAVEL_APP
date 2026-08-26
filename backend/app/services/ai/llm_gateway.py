@@ -97,6 +97,22 @@ class GenerationConfig:
     max_output_tokens: int = 2048
     temperature: float = 0.7
     timeout_seconds: float = 30.0
+    thinking_budget: int = 0
+    """Real, live-testing-discovered configuration issue (Phase 6
+    certification pass): the Gemini 3.x model family thinks by default,
+    and internal 'thought' tokens are drawn from the SAME
+    `max_output_tokens` budget as the visible answer — a low budget (fine
+    for a short structured JSON reply under the 2.x family) could return
+    an empty response (`finish_reason=MAX_TOKENS`, no text) once thinking
+    consumed the whole budget. Every pipeline in this codebase needs a
+    fast, deterministic, budget-fitting reply (itinerary JSON, a
+    translation, a narration paragraph) rather than an extended reasoning
+    trace, and the 8-12s/3-5s PRD latency targets (§15) don't leave room
+    for open-ended thinking either — so thinking is disabled by default
+    (0 = off, the value Gemini's `ThinkingConfig.thinking_budget`
+    documents for fully disabling it) across every call site. A future
+    pipeline that specifically wants deeper reasoning can override this
+    per-call without changing the default."""
     """Provider-level content-safety settings are always enabled (never
     disabled) — see each adapter's own module docstring for how this is
     wired (AI_ARCHITECTURE.md §10)."""

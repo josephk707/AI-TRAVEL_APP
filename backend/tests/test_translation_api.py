@@ -108,7 +108,12 @@ async def test_translate_with_no_gemini_key_configured_returns_503_not_a_crash(
 ) -> None:
     """This environment genuinely has no GEMINI_API_KEY configured — proves
     the real current graceful-degradation state, not a simulated one."""
-    assert ai_factory.get_llm_gateway() is None, "this test assumes no real Gemini key is set"
+    if ai_factory.get_llm_gateway() is not None:
+        pytest.skip(
+            "GEMINI_API_KEY is configured in this environment — this test's "
+            "premise (no provider configured) no longer holds; see "
+            "test_llm_gateway_live.py for the real-key equivalent."
+        )
 
     response = await client.post(
         "/v1/translate/text",

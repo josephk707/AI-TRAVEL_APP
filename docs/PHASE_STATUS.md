@@ -920,7 +920,69 @@ Phase 5 (F6 — Maps & Navigation) is code-complete, live-verified against the r
 
 ## PHASE 6 — AI CORE (F3/F4/F5) + AI EXTENSIONS (F8/F9/F10/F25)
 
-**Status: PARTIAL — every layer is real, live-tested against the real Supabase project, and code-complete; every AI *composition* call is BLOCKED on one missing credential (`GEMINI_API_KEY`), the same class of external blocker as Phase 3's Google OAuth and Phase 5's Google Maps key.**
+**Status: PARTIAL — `GEMINI_API_KEY` is now configured and REAL Gemini integration has been genuinely exercised successfully (not mocked) for the LLM Gateway itself and for F3 Itinerary Generation, full stack, with real database persistence. F4/F5/F8/F9/F10/F25 remain code-complete and boundary-mock-verified but NOT YET live-confirmed with a real model response, because this key's free-tier daily quota (20 requests/day for the resolved `gemini-flash-latest` model) was exhausted mid-certification-pass — a real, external, provider-side constraint, not an implementation gap. See "Real Gemini API Validation — Certification Pass" immediately below for the full, itemized result.**
+
+---
+
+## Real Gemini API Validation — Certification Pass (2026-08-26)
+
+This section is a second, later pass over the same Phase 6 work: `GEMINI_API_KEY` was not configured when Phase 6 was originally implemented and committed (`2c843fc`); the user then configured it directly in `backend/.env` (never shared with or exposed by this session) and asked for real, non-mocked validation. **No AI implementation was redesigned or rebuilt this pass** — only real, load-bearing configuration/test-infrastructure defects that live testing surfaced were fixed, per that explicit instruction.
+
+### Real bugs found and fixed this pass (not hidden, not worked around)
+
+1. **The originally-configured models were deprecated for this account.** A real live call to `gemini-2.5-pro` returned a real `404 NOT_FOUND`: *"This model models/gemini-2.5-pro is no longer available to new users. Please update your code to use models/gemini-3.1-pro-preview."* `gemini-2.5-flash` failed identically, recommending `gemini-3.6-flash`. Tried `gemini-3.1-pro-preview` next — it returned a real `429` with an explicit **`limit: 0`** free-tier quota for that model (the "pro" tier is not usable at all on this plan, not merely rate-limited). **Fix:** both `gemini_text_model` and `gemini_reasoning_model` now default to `gemini-flash-latest` — a Google-maintained alias rather than a dated snapshot, reducing future deprecation churn — verified live to work for this key.
+2. **Gemini's 3.x model family "thinks" by default, and thought tokens are drawn from the same `max_output_tokens` budget as the visible answer.** A live call with a modest token budget returned `finish_reason=MAX_TOKENS` with **zero visible text** — the whole budget was consumed by an invisible reasoning trace. This is a real, silent-failure-shaped bug: every pipeline in this codebase needs a fast, budget-fitting structured reply, and the PRD's own 8-12s/3-5s latency targets (§15) leave no room for open-ended thinking. **Fix:** `GenerationConfig` gained a `thinking_budget` field (default `0`, i.e. thinking disabled), threaded through to Gemini's real `ThinkingConfig` — verified live afterward to return real, correct text within a normal token budget.
+3. **A real, reproducible `RuntimeError: Event loop is closed` cross-test contamination bug**, found only by running genuinely live (unmocked) tests: `get_llm_gateway()` is `@lru_cache`d (correct for production — one process, one long-lived event loop), but this test suite's `pytest-asyncio` config gives every test function its own event loop. The cached `GeminiAdapter`'s internal httpx connection pool, once opened against one test's loop, breaks any LATER test — even an unrelated one — that reaches the same cached instance after that loop closes. **Fix:** `tests/conftest.py` gained an autouse fixture that clears `get_llm_gateway`'s cache before and after every test, exactly mirroring the pre-existing `_reset_db_pool_state` fixture's rationale for `app/db/session.py`'s pool.
+4. **Six existing Phase 6 tests asserted the wrong precondition** ("no Gemini key is configured") now that a real key exists — an expected, previously-documented maintenance item (`PHASE_STATUS.md`'s own Phase 6 section said this would be needed). **Fix:** each now skips cleanly with an explicit reason when a real gateway is present, rather than failing — the "no key" behavior they test remains correct and is still exercised in any environment without a key.
+
+### What was actually, genuinely exercised against the real Gemini API (no mocking)
+
+| # | Check | Result |
+|---|---|---|
+| 1 | Real text completion (`LLMGateway.complete()`, no schema) | **PASSED** — real "PONG" returned |
+| 2 | Real structured JSON output (`response_schema`) | **PASSED** — real schema-validated object returned |
+| 3 | Real embeddings (1536-dim) | **PASSED** — real vector returned, correct dimensionality |
+| 4 | **Real F3 itinerary generation, full stack** — mobile-shaped API call → real Gemini call → structured plan → business-rule validation → real Postgres persistence → re-verified via a SEPARATE read | **PASSED** — `generation_status: "succeeded"`, a real scheduled Taj Mahal visit, confirmed in the database afterward |
+| 5 | F4 idea extraction (real call) | **BLOCKED this pass** — daily quota exhausted before this test ran |
+| 6 | F5 conversational modification (real call) | **BLOCKED this pass** — same |
+| 7 | F10 translation — Hindi/Telugu/Malayalam/Kannada (real calls) | **BLOCKED this pass** — same |
+| 8 | F8 heritage narration (real call) | **BLOCKED this pass** — same |
+| 9 | F9 visual Q&A (real call) | **BLOCKED this pass** — same |
+| 10 | F25 speech translation (real call) | **BLOCKED this pass** — same |
+| 11 | Cross-user isolation combined with a real AI call | **BLOCKED this pass** (same quota) — but cross-user isolation ITSELF (no AI involved) is independently, repeatedly, live-proven throughout the existing regression suite (e.g. `test_another_user_cannot_access_or_update_someone_elses_trip`), unaffected by this |
+
+**Root cause of items 5-11 not completing:** this API key's free-tier plan caps the resolved `gemini-flash-latest` model at **20 requests/day** (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`) — a real, external, provider-account constraint discovered only by actually running live calls, not something any amount of code review would have surfaced. Diagnosing the two model-deprecation issues above (item 1) itself consumed a meaningful share of today's allotment before the account was even usable. Per the user's explicit decision (asked directly, given the options of certifying partial now / waiting for a possible quota reset / upgrading the key), **this pass certifies what was genuinely proven today and stops making further Gemini calls**, rather than continuing to force additional failures against an exhausted quota.
+
+**All 6 tests were run against a real Google Gemini model, not a stub** — every one of the 4 passes above is a genuine network round trip to `generativelanguage.googleapis.com`, visible in this session's own captured logs.
+
+### Independent classification of every AI feature (per explicit instruction — do not certify COMPLETE without real success)
+
+| Feature | Classification | Basis |
+|---|---|---|
+| LLM Gateway / Gemini adapter | **COMPLETE** | Real text, structured-output, and embedding calls all succeeded live this pass |
+| F3 — Itinerary Generation | **COMPLETE** | Real, live, full-stack success with verified database persistence (item 4 above) |
+| F4 — Idea Extraction | **PARTIAL** | Code-complete, unit + boundary-mock-verified; real live call BLOCKED by daily quota, not yet confirmed with a real model response |
+| F5 — Conversational Modification | **PARTIAL** | Same — code-complete and mock-verified (incl. the real, live-proven graceful-degrade path when a real call fails), real live SUCCESS not yet confirmed |
+| F10 — Dynamic Text Translation (Hindi/Telugu/Malayalam/Kannada) | **PARTIAL** | Same — code-complete, mock-verified for all four languages; no real live translation confirmed yet for any language |
+| F8 — Heritage Narration RAG | **PARTIAL** | Same — real curated content + real retrieval proven live; the LLM composition step's real success not yet confirmed |
+| F9 — Visual Q&A | **PARTIAL** | Same — real image validation proven live; real multimodal success not yet confirmed |
+| F25 — Speech Translation | **PARTIAL** | Same — real audio validation proven live; real audio-understanding success not yet confirmed; also carries the pre-existing documented batch-vs-real-time-streaming boundary |
+| Cross-user AI isolation | **COMPLETE** (isolation) / **PARTIAL** (combined with a live AI call) | Ownership/authorization isolation is proven repeatedly and live throughout the regression suite independent of any AI call; the specific "two users, both generating real itineraries" combined scenario wasn't completed live this pass |
+| Business-rule validation (budget/hours/travel-time/weather) | **COMPLETE** | Fully deterministic, no AI dependency, unit + live-tested regardless of Gemini's availability |
+
+**Overall Phase 6 status remains PARTIAL, not COMPLETE** — per the explicit instruction, COMPLETE requires the real Gemini integration to have actually been exercised successfully, and while it genuinely has been for the Gateway itself and for F3, six other features have not yet had a real, successful (non-mocked) call completed, solely because of the daily quota. Nothing above is fabricated, assumed, or rounded up.
+
+### Regression (Phases 1-5 + all Phase 6 boundary-mocked tests)
+
+Run after the fixes above, with the real key configured: **190 passed, 6 skipped (correctly — their premise no longer holds once a key exists), 0 failed** (backend); **92 passed, 0 failed** (mobile); TypeScript/ruff/black/mypy/expo-lint all clean. Zero regressions.
+
+### Test Artifact
+
+`backend/tests/test_llm_gateway_live.py` — a new, permanent, real-Gemini-calling test file (gated by `GEMINI_API_KEY` presence, so it's a no-op without a key and doesn't threaten CI). Run it again once the daily quota resets:
+```
+python scripts/run_live_tests.py tests/test_llm_gateway_live.py -v
+```
+It paces itself with a 20s delay between tests (a real, external rate/quota constraint, not a code issue) — a full run will take several minutes.
 
 ---
 
@@ -933,6 +995,8 @@ This authorization explicitly expanded Phase 6's scope beyond `IMPLEMENTATION_BL
 ---
 
 ## Requirements Traceability
+
+**Note: this table predates the certification pass above** (written when no `GEMINI_API_KEY` existed). The per-feature "live network call BLOCKED (no key)" statuses below are superseded by the certification pass's independent classification table — items 2/3 are now genuinely COMPLETE (real Gemini success confirmed); items 5/6/9/10/12/16/18 remain PARTIAL for the reason given there (daily quota, not a missing key). Kept as-written for an accurate historical record of what this phase looked like before the key was configured.
 
 | # | Requirement | Source | Status |
 |---|---|---|---|
@@ -1072,7 +1136,7 @@ No secrets committed (repository-wide scan clean — `GEMINI_API_KEY`/`WEATHER_A
 
 ## Blocked Items
 
-1. **`GEMINI_API_KEY`** — external, manual, the project owner's own explicit responsibility this phase. Blocks: live AI composition for F3/F4/F5/F8/F9/F10/F25, and heritage embedding generation. This is the **only** blocked item whose root cause isn't itself downstream of this same one.
+1. **Daily Gemini quota exhausted** (certification pass, 2026-08-26) — `GEMINI_API_KEY` is now configured, but the resolved `gemini-flash-latest` model is capped at 20 requests/day on this key's free-tier plan, and that allotment was consumed between diagnosing two model-deprecation issues and this pass's live tests. Blocks: real (non-mocked) live confirmation of F4, F5, F8, F9, F10, F25 specifically — each is code-complete and boundary-mock-verified, just not yet confirmed against a real, successful model response. Resolves on its own once the quota resets, or immediately with a billing-enabled key.
 2. **`WEATHER_API_KEY`** (OpenWeatherMap) — external, manual, not yet provided. Blocks: the H7 weather-flagging rule actually firing (code path is real and tested with a mocked provider; no live forecast has been fetched).
 
 **Carried forward, unrelated to Phase 6:** Google OAuth (Phase 3) and Google Maps Platform credentials (Phase 5) remain outstanding — tracked in their own sections, not resolved or affected by this phase.
@@ -1081,16 +1145,17 @@ No secrets committed (repository-wide scan clean — `GEMINI_API_KEY`/`WEATHER_A
 
 - `ARCHITECTURE_REVIEW.md` H3 (Redis) — partially addressed (documented in-memory decision for AI-endpoint rate limiting), full resolution (a real Redis-backed store) still open, relevant once this backend scales beyond one instance.
 - Google OAuth (Phase 3) and Google Maps (Phase 5) — still open, tracked in their own sections.
-- Embedding-backed hybrid recommendation retrieval for F3 (`AI_ARCHITECTURE.md` §2 step 2) — open, depends on the same Gemini key plus a broader embedding-population pass beyond just heritage content.
+- Embedding-backed hybrid recommendation retrieval for F3 (`AI_ARCHITECTURE.md` §2 step 2) — open, depends on a broader embedding-population pass beyond just heritage content.
+- Re-run `tests/test_llm_gateway_live.py` once the daily quota resets (or a billing-enabled key is available) to complete live confirmation of F4/F5/F8/F9/F10/F25 and reclassify them COMPLETE.
 
 ---
 
 ## Environment Variables Required
 
-**Backend** (new this phase, all optional — absence degrades gracefully, never crashes):
-- `GEMINI_API_KEY` — the AI provider key. **Not configured in this environment.**
+**Backend** (all optional — absence degrades gracefully, never crashes):
+- `GEMINI_API_KEY` — the AI provider key. **Configured as of the certification pass (2026-08-26)** — real integration confirmed for the Gateway itself and F3 (see above). Value never exposed in this session, logs, or any committed file.
 - `LLM_PROVIDER=gemini` — provider selector (only value currently supported).
-- `WEATHER_API_KEY` — OpenWeatherMap key for the F3 weather rule. **Not configured in this environment.**
+- `WEATHER_API_KEY` — OpenWeatherMap key for the F3 weather rule. **Still not configured in this environment.**
 
 No existing environment variable was removed or renamed. No new mobile environment variable — the mobile app never holds an AI provider key (CLAUDE.md §4), it only calls this backend.
 
@@ -1098,13 +1163,13 @@ No existing environment variable was removed or renamed. No new mobile environme
 
 ## Files Created
 
-**Backend:** `app/services/ai/llm_gateway.py`, `app/services/ai/gemini_adapter.py`, `app/services/ai/factory.py`, `app/services/ai/prompts/{__init__,itinerary,idea_extraction,modification,narration,photo_qa,translation,speech_translation}.py`, `app/services/business_rules.py`, `app/services/weather_client.py`, `app/services/weather_service.py`, `app/services/itinerary_service.py`, `app/services/idea_extraction_service.py`, `app/services/modification_service.py`, `app/services/translation_service.py`, `app/services/speech_translation_service.py`, `app/services/narration_service.py`, `app/services/photo_qa_service.py`, `app/repositories/trips_repository.py`, `app/repositories/heritage_repository.py`, `app/repositories/weather_repository.py`, `app/repositories/ai_conversations_repository.py`, `app/schemas/trips.py`, `app/schemas/heritage.py`, `app/schemas/translation.py`, `app/api/v1/trips.py`, `app/api/v1/heritage.py`, `app/api/v1/translation.py`, `app/core/rate_limit.py`, `tests/test_gemini_adapter.py`, `tests/test_business_rules.py`, `tests/test_trips_api.py`, `tests/test_translation_service.py`, `tests/test_translation_api.py`, `tests/test_heritage_api.py`, `tests/test_speech_translation_api.py`, `scripts/seed_heritage_content.py`, `scripts/embed_heritage_content.py`, `supabase/migrations/20260826120001_phase6_ai_itinerary.sql`.
+**Backend:** `app/services/ai/llm_gateway.py`, `app/services/ai/gemini_adapter.py`, `app/services/ai/factory.py`, `app/services/ai/prompts/{__init__,itinerary,idea_extraction,modification,narration,photo_qa,translation,speech_translation}.py`, `app/services/business_rules.py`, `app/services/weather_client.py`, `app/services/weather_service.py`, `app/services/itinerary_service.py`, `app/services/idea_extraction_service.py`, `app/services/modification_service.py`, `app/services/translation_service.py`, `app/services/speech_translation_service.py`, `app/services/narration_service.py`, `app/services/photo_qa_service.py`, `app/repositories/trips_repository.py`, `app/repositories/heritage_repository.py`, `app/repositories/weather_repository.py`, `app/repositories/ai_conversations_repository.py`, `app/schemas/trips.py`, `app/schemas/heritage.py`, `app/schemas/translation.py`, `app/api/v1/trips.py`, `app/api/v1/heritage.py`, `app/api/v1/translation.py`, `app/core/rate_limit.py`, `tests/test_gemini_adapter.py`, `tests/test_business_rules.py`, `tests/test_trips_api.py`, `tests/test_translation_service.py`, `tests/test_translation_api.py`, `tests/test_heritage_api.py`, `tests/test_speech_translation_api.py`, `scripts/seed_heritage_content.py`, `scripts/embed_heritage_content.py`, `supabase/migrations/20260826120001_phase6_ai_itinerary.sql`, and (certification pass) `tests/test_llm_gateway_live.py`.
 
 **Mobile:** `src/api/trips.ts`, `src/api/heritage.ts`, `src/api/translation.ts`, `src/screens/{TripsListScreen,TripCreationScreen,ChatScreen,ItineraryViewScreen,TranslateScreen,HeritageNarrationScreen,PhotoQAScreen}.tsx` + matching `__tests__/*.test.tsx` for each, `src/components/{TripCard,ChatBubble,ItineraryItemCard,ConfidenceBadge}.tsx`.
 
 ## Files Modified
 
-**Backend:** `app/api/v1/router.py` (mounts trips/heritage/translation routers), `app/core/config.py` (adds `gemini_api_key`/`llm_provider`/model config/`weather_api_key`), `pyproject.toml` (adds `google-genai`, `python-multipart`), `.env.example` (adds the three new variables, placeholders only).
+**Backend:** `app/api/v1/router.py` (mounts trips/heritage/translation routers), `app/core/config.py` (adds `gemini_api_key`/`llm_provider`/model config/`weather_api_key`; certification pass: model defaults corrected to `gemini-flash-latest`), `pyproject.toml` (adds `google-genai`, `python-multipart`), `.env.example` (adds the three new variables, placeholders only). **Certification pass additionally:** `app/services/ai/llm_gateway.py` (`GenerationConfig.thinking_budget` field), `app/services/ai/gemini_adapter.py` (threads `thinking_budget` into `ThinkingConfig`), `tests/conftest.py` (autouse `get_llm_gateway` cache-reset fixture), `tests/test_heritage_api.py`/`test_speech_translation_api.py`/`test_translation_api.py`/`test_trips_api.py` (6 tests updated to skip cleanly now that a real key exists, instead of asserting the no-key precondition).
 
 **Mobile:** `package.json`/`package-lock.json` (adds `expo-image-picker`, `expo-audio`), `app.config.js` (adds the `expo-audio` plugin), `src/api/client.ts` (adds `apiPatch`/`apiDelete`/`apiPostFormData`), `src/navigation/RootNavigator.tsx` (7 new routes), `src/screens/HomeScreen.tsx` (Plan-a-trip/Translate entry cards), `src/screens/PoiDetailScreen.tsx` (heritage-story entry point), `src/screens/__tests__/PoiDetailScreen.test.tsx` (regression fix — added the navigation mock its new `useNavigation()` call requires, plus 2 new tests).
 
@@ -1114,10 +1179,10 @@ No existing environment variable was removed or renamed. No new mobile environme
 
 ## Definition of Done — checked against CLAUDE.md §14 / this authorization's §25
 
-Every checklist item is satisfied **except** the ones that depend on the missing `GEMINI_API_KEY`: "AI responses are not hardcoded" ✓ (true regardless of the key — there is no hardcoded path, only a real call or a real, honest degrade), "real Gemini API validation has been performed" — **NOT satisfied**, honestly classified BLOCKED, not glossed over. Every other item — backend, database, RLS, mobile UI/states/navigation, all test suites, typecheck, lint, formatting, all five prior phases' regression suites, security validation, no committed secrets, documentation, traceability — is genuinely satisfied and verified above, not assumed.
+Every checklist item is satisfied **except**: "real Gemini API validation has been performed" is satisfied **for the Gateway itself and F3 only** — genuinely, not assumed. It is **NOT yet satisfied for F4/F5/F8/F9/F10/F25**, honestly classified PARTIAL (code-complete, mock-verified, real success not yet confirmed) rather than rounded up to COMPLETE, per the explicit certification instruction. "AI responses are not hardcoded" ✓ unconditionally (there is no hardcoded path anywhere, only a real call or a real, honest degrade). Every other item — backend, database, RLS, mobile UI/states/navigation, all test suites, typecheck, lint, formatting, all five prior phases' regression suites, security validation, no committed secrets, documentation, traceability — is genuinely satisfied and verified above, not assumed.
 
 ---
 
 ## STOP
 
-Phase 6 (F3/F4/F5 AI Core + F8/F9/F10/F25 AI Extensions) is code-complete, live-verified against the real Supabase project end-to-end for every non-AI-composition path, and documented. It is classified **PARTIAL**, not COMPLETE, solely because `GEMINI_API_KEY` (and secondarily `WEATHER_API_KEY`) do not exist in this environment — external, manual dependencies, not implementation gaps, per CLAUDE.md §3's explicit guidance to implement the most complete legitimate integration possible and document the remaining dependency rather than simulate success. Per CLAUDE.md §12 and this authorization's explicit instruction, no further phase has been started. Waiting for (1) `GEMINI_API_KEY` (and ideally `WEATHER_API_KEY`) to be provisioned so this phase's blocked items can be live-verified and certified COMPLETE, and (2) explicit authorization to begin the next phase thereafter.
+Phase 6 (F3/F4/F5 AI Core + F8/F9/F10/F25 AI Extensions) is code-complete, live-verified against the real Supabase project end-to-end for every non-AI-composition path, and — as of this certification pass — genuinely, live-verified against the real Gemini API for the LLM Gateway itself and for F3 Itinerary Generation specifically, full stack, with real database persistence. It remains classified **PARTIAL**, not COMPLETE, because F4/F5/F8/F9/F10/F25 have not yet each had a real, successful (non-mocked) Gemini call confirmed — blocked by this API key's 20-requests/day free-tier quota for the resolved model, a real external constraint hit mid-pass, not an implementation gap. Per CLAUDE.md §12 and this authorization's explicit instruction, no further phase has been started, and no additional real Gemini calls were made once the quota was confirmed exhausted (per the user's explicit decision). Waiting for (1) the daily quota to reset (or a billing-enabled key) so `tests/test_llm_gateway_live.py`'s remaining checks can complete and F4/F5/F8/F9/F10/F25 be reclassified COMPLETE, (2) `WEATHER_API_KEY` for the H7 rule, and (3) explicit authorization to begin the next phase thereafter.

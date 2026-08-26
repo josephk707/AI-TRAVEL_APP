@@ -109,8 +109,22 @@ class Settings(BaseSettings):
     # for structured extraction/generation, a stronger one for
     # conversational nuance, a dedicated embedding model whose output
     # dimension MUST match the vector(1536) columns in DATABASE_SCHEMA.md.
-    gemini_text_model: str = "gemini-2.5-flash"
-    gemini_reasoning_model: str = "gemini-2.5-pro"
+    #
+    # REAL, LIVE-TESTING-DISCOVERED CONFIGURATION FIX (Phase 6 certification
+    # pass): the originally-configured `gemini-2.5-flash`/`gemini-2.5-pro`
+    # both returned a real, live `404 NOT_FOUND` — "no longer available to
+    # new users" — from the actual Gemini API against this project's real
+    # key, each pointing at a specific named replacement. `gemini-3.1-pro-preview`
+    # (the suggested pro replacement) was tried and returned a real `429`
+    # with an explicit `limit: 0` free-tier quota for that model — the "pro"
+    # tier is not usable at all on this key's current plan, not just rate-
+    # limited. `gemini-flash-latest` (a Google-maintained alias, not a dated
+    # snapshot, reducing future deprecation churn) was verified live to work
+    # for both text and reasoning roles under this key/plan — both settings
+    # point at it until a paid tier or a specific stronger model is
+    # confirmed available.
+    gemini_text_model: str = "gemini-flash-latest"
+    gemini_reasoning_model: str = "gemini-flash-latest"
     gemini_embedding_model: str = "gemini-embedding-001"
     gemini_embedding_dimensions: int = 1536
 

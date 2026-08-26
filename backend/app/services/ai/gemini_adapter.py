@@ -137,6 +137,7 @@ class GeminiAdapter:
             safety_settings=_SAFETY_SETTINGS,
             response_mime_type="application/json" if response_schema else None,
             response_schema=response_schema,
+            thinking_config=genai_types.ThinkingConfig(thinking_budget=config.thinking_budget),
         )
 
     async def _generate(
