@@ -5,12 +5,18 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { useAuth } from "../auth/AuthContext";
 import { LoadingView } from "../components/LoadingView";
 import { OnboardingNavigator } from "./OnboardingNavigator";
+import { BudgetViewScreen } from "../screens/BudgetViewScreen";
 import { ChatScreen } from "../screens/ChatScreen";
+import { CollectionsScreen } from "../screens/CollectionsScreen";
 import { ExploreScreen } from "../screens/ExploreScreen";
 import { HeritageNarrationScreen } from "../screens/HeritageNarrationScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ItineraryViewScreen } from "../screens/ItineraryViewScreen";
+import { MemoryBoxScreen } from "../screens/MemoryBoxScreen";
+import { NotificationsCentreScreen } from "../screens/NotificationsCentreScreen";
+import { OnTripCompanionScreen } from "../screens/OnTripCompanionScreen";
 import { PhotoQAScreen } from "../screens/PhotoQAScreen";
+import { PhrasebookScreen } from "../screens/PhrasebookScreen";
 import { PoiDetailScreen } from "../screens/PoiDetailScreen";
 import { SignInScreen } from "../screens/SignInScreen";
 import { TranslateScreen } from "../screens/TranslateScreen";
@@ -48,6 +54,12 @@ export type RootStackParamList = {
   Translate: undefined;
   HeritageNarration: { poiId: string; poiName: string };
   PhotoQA: { poiId: string; poiName: string };
+  Collections: undefined;
+  Notifications: undefined;
+  BudgetView: { tripId: string };
+  MemoryBox: { tripId: string };
+  Phrasebook: { tripId: string };
+  OnTripCompanion: { tripId: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -81,6 +93,12 @@ export function RootNavigator(): React.JSX.Element {
               <Stack.Screen name="Translate" component={TranslateScreen} />
               <Stack.Screen name="HeritageNarration" component={HeritageNarrationScreen} />
               <Stack.Screen name="PhotoQA" component={PhotoQAScreen} />
+              <Stack.Screen name="Collections" component={CollectionsScreen} />
+              <Stack.Screen name="Notifications" component={NotificationsCentreScreen} />
+              <Stack.Screen name="BudgetView" component={BudgetViewScreen} />
+              <Stack.Screen name="MemoryBox" component={MemoryBoxScreen} />
+              <Stack.Screen name="Phrasebook" component={PhrasebookScreen} />
+              <Stack.Screen name="OnTripCompanion" component={OnTripCompanionScreen} />
             </>
           ) : (
             <Stack.Screen name="Onboarding" component={OnboardingNavigator} />

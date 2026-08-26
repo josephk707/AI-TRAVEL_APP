@@ -26,6 +26,10 @@ class Meta(BaseModel):
     # just possibly incomplete relative to the full live catalog.
     degraded_mode: bool | None = None
     message: str | None = None
+    # Set by POST /trips/{trip_id}/expenses (API_SPECIFICATION.md §14) when
+    # logging this expense pushes the trip over its planned budget —
+    # advisory only, never blocks the write (FR-016 business rule).
+    over_budget: bool | None = None
 
 
 class Envelope(BaseModel, Generic[T]):

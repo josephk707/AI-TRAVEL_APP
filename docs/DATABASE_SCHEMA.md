@@ -66,6 +66,17 @@ No other schema changes this phase — `trips`, `itinerary_days`, `itinerary_ite
 
 ---
 
+### 0e. Phase 7 (F7/F10/F11/F13/F14/F15/F16/F17/F18) Implementation Changelog
+
+| Change | Detail | Migration |
+|---|---|---|
+| `trips.location_sharing_consent` (boolean, default false) + `trips.location_sharing_consented_at` (timestamptz, nullable) — new columns | F7's BR-014 requires an explicit, per-trip location-sharing consent gate, checked before any location write. No existing document specifies where this consent flag is stored — resolved here (per CLAUDE.md §13's "identify the ambiguity, document the decision" convention) by adding it directly to `trips` rather than a new table, since consent is 1:1 with a trip, not a repeating record. | `20260827120001` |
+| 56 real, curated `phrasebook_entries` rows seeded (Hindi × Agra/Delhi/Jaipur, Kannada × Mysore, Tamil × Madurai) via `scripts/seed_phrasebook.py` | F10's static half — real, hand-authored courtesy/directions/prices/essentials phrases tied to the curated POI cities already seeded in Phase 5, mirroring Phase 6's `seed_heritage_content.py` maintainer-script precedent (no admin UI for this content). | data-only, no schema change |
+
+No other schema changes this phase — `favorites`, `collections`/`collection_items`, `reviews`, `notifications`/`device_push_tokens`, `budget_expenses`, `location_pings`, `feedback_signals`, `analytics_events`, and `phrasebook_entries` itself all already existed from Phase 2 with exactly the shape F10/F11/F13/F14/F15/F16/F17/F18 needed.
+
+---
+
 ## 1. Extensions
 
 ```sql
@@ -187,6 +198,8 @@ create table public.trips (
   budget_currency  text not null default 'INR',
   generation_status text not null default 'none'
                      check (generation_status in ('none','pending','succeeded','fallback_used','failed')),
+  location_sharing_consent      boolean not null default false,  -- F7/BR-014, Phase 7
+  location_sharing_consented_at timestamptz,                     -- F7, Phase 7
   deleted_at       timestamptz,                 -- soft-delete (§28 "user cancels a trip")
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()

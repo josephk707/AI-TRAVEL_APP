@@ -39,6 +39,10 @@ import { logout as logoutRequest } from "../api/auth";
 import { setUnauthorizedHandler } from "../api/authBridge";
 import { fetchOnboardingStatus } from "../api/onboarding";
 import { supabase } from "../lib/supabase";
+import {
+  registerForPushNotifications,
+  unregisterCurrentPushToken,
+} from "../notifications/pushNotifications";
 
 // Required once per app so an auth popup/browser tab closes itself after
 // the redirect lands, on web and in the native in-app browser alike.
@@ -170,6 +174,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     // since the user can still Skip — rather than silently hiding it.
   }, [state]);
 
+  useEffect(() => {
+    // F16 — best-effort push registration once signed in. Never blocks
+    // anything else in this effect chain; failures are swallowed inside
+    // registerForPushNotifications() itself (see that module's own
+    // rationale) since the in-app Notifications Centre is the guaranteed
+    // fallback channel regardless.
+    if (state === "AUTHENTICATED") {
+      void registerForPushNotifications();
+    }
+  }, [state]);
+
   const completeOnboardingLocally = useCallback((): void => {
     setOnboardingCompleted(true);
   }, []);
@@ -229,6 +244,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
 
   const signOut = async (): Promise<void> => {
     signOutInitiated.current = true;
+
+    await unregisterCurrentPushToken();
 
     try {
       // Real backend-mediated revoke (POST /v1/auth/logout) — proves the

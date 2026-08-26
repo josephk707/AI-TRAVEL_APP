@@ -11,6 +11,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Poi } from "../api/pois";
 import { ApiError } from "../api/client";
 import { fetchPoi } from "../api/pois";
+import { addFavorite, listFavorites, removeFavorite } from "../api/collections";
+import { createReview, listPoiReviews, Review } from "../api/reviews";
+import { listTrips, Trip } from "../api/trips";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { LoadingView } from "../components/LoadingView";
@@ -22,6 +25,8 @@ type LoadState =
   | { status: "loading" }
   | { status: "success"; poi: Poi }
   | { status: "error"; message: string };
+
+type ReviewFormState = { visible: false } | { visible: true; tripId: string | null; rating: number; text: string };
 
 const OPENING_HOURS_DAY_ORDER = [
   "monday",
@@ -53,6 +58,13 @@ export function PoiDetailScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "PoiDetail">>();
   const insets = useSafeAreaInsets();
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [favoriteBusy, setFavoriteBusy] = useState(false);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewForm, setReviewForm] = useState<ReviewFormState>({ visible: false });
+  const [completedTrips, setCompletedTrips] = useState<Trip[]>([]);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   // Resolves the next LoadState without setting state itself, so the
   // effect below can set state only inside a .then() callback
@@ -82,10 +94,74 @@ export function PoiDetailScreen(): React.JSX.Element {
     };
   }, [resolveDetail]);
 
+  useEffect(() => {
+    if (loadState.status !== "success") return;
+    let cancelled = false;
+    listFavorites()
+      .then((favorites) => {
+        if (!cancelled) setIsFavorite(favorites.some((f) => f.poi_id === loadState.poi.id));
+      })
+      .catch(() => undefined);
+    listPoiReviews(loadState.poi.id)
+      .then((fetched) => {
+        if (!cancelled) setReviews(fetched);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadState]);
+
   const retryLoad = useCallback(() => {
     setLoadState({ status: "loading" });
     void resolveDetail().then(setLoadState);
   }, [resolveDetail]);
+
+  const toggleFavorite = useCallback(async () => {
+    if (loadState.status !== "success" || favoriteBusy) return;
+    setFavoriteBusy(true);
+    try {
+      if (isFavorite) {
+        await removeFavorite(loadState.poi.id);
+        setIsFavorite(false);
+      } else {
+        await addFavorite(loadState.poi.id);
+        setIsFavorite(true);
+      }
+    } catch {
+      // A failed favorite toggle is not worth an error screen — the icon
+      // simply stays in its previous state and the user can retry the tap.
+    } finally {
+      setFavoriteBusy(false);
+    }
+  }, [loadState, isFavorite, favoriteBusy]);
+
+  const openReviewForm = useCallback(() => {
+    setReviewError(null);
+    setReviewForm({ visible: true, tripId: null, rating: 5, text: "" });
+    listTrips()
+      .then((trips) => setCompletedTrips(trips.filter((t) => t.status === "completed")))
+      .catch(() => setCompletedTrips([]));
+  }, []);
+
+  const submitReview = useCallback(async () => {
+    if (loadState.status !== "success" || !reviewForm.visible || !reviewForm.tripId) {
+      setReviewError("Choose a completed trip that included this place.");
+      return;
+    }
+    setSubmittingReview(true);
+    setReviewError(null);
+    try {
+      await createReview(loadState.poi.id, reviewForm.tripId, reviewForm.rating, reviewForm.text || undefined);
+      setReviewForm({ visible: false });
+      const fetched = await listPoiReviews(loadState.poi.id);
+      setReviews(fetched);
+    } catch (error) {
+      setReviewError(error instanceof ApiError ? error.message : "Couldn't submit your review.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  }, [loadState, reviewForm]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
@@ -131,7 +207,21 @@ export function PoiDetailScreen(): React.JSX.Element {
           </MapErrorBoundary>
 
           <View style={styles.body}>
-            <Text style={styles.name}>{loadState.poi.name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{loadState.poi.name}</Text>
+              <Pressable
+                onPress={() => void toggleFavorite()}
+                disabled={favoriteBusy}
+                accessibilityRole="button"
+                testID="favorite-toggle-button"
+              >
+                <Ionicons
+                  name={isFavorite ? "heart" : "heart-outline"}
+                  size={26}
+                  color={isFavorite ? colors.error : colors.textMuted}
+                />
+              </Pressable>
+            </View>
             {loadState.poi.address && <Text style={styles.address}>{loadState.poi.address}</Text>}
 
             <Card style={styles.detailCard}>
@@ -167,6 +257,89 @@ export function PoiDetailScreen(): React.JSX.Element {
                 <Ionicons name="chevron-forward" size={18} color={colors.primaryText} />
               </Pressable>
             )}
+
+            <View style={styles.reviewsSection} testID="reviews-section">
+              <View style={styles.reviewsHeader}>
+                <Text style={styles.reviewsHeading}>Reviews ({reviews.length})</Text>
+                {!reviewForm.visible && (
+                  <Pressable onPress={openReviewForm} testID="write-review-button">
+                    <Text style={styles.writeReviewText}>Write a review</Text>
+                  </Pressable>
+                )}
+              </View>
+
+              {reviews.length === 0 && (
+                <Text style={styles.emptyReviewsText} testID="reviews-empty">
+                  No reviews yet.
+                </Text>
+              )}
+
+              {reviews.map((review) => (
+                <Card key={review.id} style={styles.reviewCard} testID={`review-${review.id}`}>
+                  <Text style={styles.reviewRating}>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</Text>
+                  {review.review_text && <Text style={styles.reviewText}>{review.review_text}</Text>}
+                </Card>
+              ))}
+
+              {reviewForm.visible && (
+                <Card style={styles.reviewForm} testID="review-form">
+                  {completedTrips.length === 0 ? (
+                    <Text style={styles.emptyReviewsText}>
+                      Complete a trip that included this place to leave a review.
+                    </Text>
+                  ) : (
+                    <View style={styles.tripPickerRow}>
+                      {completedTrips.map((trip) => (
+                        <Pressable
+                          key={trip.id}
+                          onPress={() => setReviewForm({ ...reviewForm, tripId: trip.id })}
+                          testID={`review-trip-${trip.id}`}
+                        >
+                          <Text
+                            style={[
+                              styles.tripChip,
+                              reviewForm.tripId === trip.id && styles.tripChipActive,
+                            ]}
+                          >
+                            {trip.title}
+                          </Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )}
+
+                  <View style={styles.starRow}>
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <Pressable
+                        key={value}
+                        onPress={() => setReviewForm({ ...reviewForm, rating: value })}
+                        testID={`review-star-${value}`}
+                      >
+                        <Ionicons
+                          name={value <= reviewForm.rating ? "star" : "star-outline"}
+                          size={26}
+                          color={colors.warning}
+                        />
+                      </Pressable>
+                    ))}
+                  </View>
+
+                  {reviewError && <Text style={styles.errorText}>{reviewError}</Text>}
+
+                  <View style={styles.reviewFormActions}>
+                    <Button
+                      label={submittingReview ? "Submitting…" : "Submit review"}
+                      onPress={() => void submitReview()}
+                      disabled={submittingReview || completedTrips.length === 0}
+                      testID="submit-review-button"
+                    />
+                    <Pressable onPress={() => setReviewForm({ visible: false })} testID="cancel-review-button">
+                      <Text style={styles.cancelReviewText}>Cancel</Text>
+                    </Pressable>
+                  </View>
+                </Card>
+              )}
+            </View>
           </View>
         </ScrollView>
       )}
@@ -203,8 +376,33 @@ const styles = StyleSheet.create({
   map: { height: 220, width: "100%" },
   mapFallback: { height: 220, width: "100%", backgroundColor: colors.surface },
   body: { padding: spacing.lg, gap: spacing.sm },
-  name: { ...typography.title, color: colors.text },
+  nameRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  name: { ...typography.title, color: colors.text, flex: 1 },
   address: { ...typography.body, color: colors.textMuted },
+  reviewsSection: { marginTop: spacing.lg, gap: spacing.sm },
+  reviewsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  reviewsHeading: { ...typography.subtitle, color: colors.text },
+  writeReviewText: { ...typography.caption, color: colors.primary },
+  emptyReviewsText: { ...typography.body, color: colors.textMuted },
+  reviewCard: { gap: spacing.xs },
+  reviewRating: { color: colors.warning, fontSize: 16 },
+  reviewText: { ...typography.body, color: colors.text },
+  reviewForm: { gap: spacing.sm },
+  tripPickerRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+  tripChip: {
+    ...typography.caption,
+    color: colors.text,
+    backgroundColor: colors.background,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  tripChipActive: { backgroundColor: colors.primary, color: colors.primaryText, borderColor: colors.primary },
+  starRow: { flexDirection: "row", gap: spacing.xs },
+  reviewFormActions: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  cancelReviewText: { ...typography.body, color: colors.textMuted },
   detailCard: { gap: spacing.md, marginTop: spacing.sm },
   heritageCard: {
     flexDirection: "row",

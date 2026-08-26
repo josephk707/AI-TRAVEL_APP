@@ -143,6 +143,38 @@ export function HomeScreen(): React.JSX.Element {
         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
       </Pressable>
 
+      <Pressable
+        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
+        onPress={() => navigation.navigate("Collections")}
+        accessibilityRole="button"
+        testID="saved-places-button"
+      >
+        <View style={styles.exploreIconBadge}>
+          <Ionicons name="heart-outline" size={24} color={colors.primaryText} />
+        </View>
+        <View style={styles.exploreTextGroup}>
+          <Text style={styles.exploreTitle}>Saved places</Text>
+          <Text style={styles.exploreSubtitle}>Your favorites and collections</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </Pressable>
+
+      <Pressable
+        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
+        onPress={() => navigation.navigate("Notifications")}
+        accessibilityRole="button"
+        testID="notifications-button"
+      >
+        <View style={styles.exploreIconBadge}>
+          <Ionicons name="notifications-outline" size={24} color={colors.primaryText} />
+        </View>
+        <View style={styles.exploreTextGroup}>
+          <Text style={styles.exploreTitle}>Notifications</Text>
+          <Text style={styles.exploreSubtitle}>Arrivals, reminders, and updates</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+      </Pressable>
+
       <View style={styles.signOutButton}>
         <Button
           label={signingOut ? "Signing out…" : "Sign out"}

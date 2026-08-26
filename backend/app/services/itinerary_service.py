@@ -37,7 +37,7 @@ from app.repositories.pois_repository import PoisRepository
 from app.repositories.profiles_repository import ProfilesRepository
 from app.repositories.trips_repository import TripsRepository
 from app.schemas.trips import ItineraryGenerateRequest
-from app.services import business_rules
+from app.services import analytics_service, business_rules
 from app.services.ai.factory import get_llm_gateway
 from app.services.ai.llm_gateway import GenerationConfig, LLMMessage, LLMProviderError, MessageRole
 from app.services.ai.prompts import itinerary as itinerary_prompts
@@ -276,6 +276,11 @@ async def generate_itinerary(
     )
 
     saved_days = await trips_repo.get_itinerary(trip_id)
+    await analytics_service.track(
+        user_id,
+        "itinerary_generated",
+        {"trip_id": trip_id, "degraded": degraded, "item_count": len(items)},
+    )
     return (
         {
             "trip_id": trip_id,

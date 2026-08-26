@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from fastapi import Depends, Header
 
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.security import AuthenticatedUser, verify_access_token
+from app.repositories.profiles_repository import ProfilesRepository
 
 
 async def get_bearer_token(authorization: str | None = Header(default=None)) -> str:
@@ -39,3 +40,16 @@ async def get_current_user(token: str = Depends(get_bearer_token)) -> Authentica
     authenticated identity. Raises 401 on any failure — never partially
     authenticates."""
     return verify_access_token(token)
+
+
+async def require_admin(user: AuthenticatedUser = Depends(get_current_user)) -> AuthenticatedUser:
+    """Gate for `/v1/admin/*` (F14 review moderation, API_SPECIFICATION.md
+    §19). `AuthenticatedUser.role` is the Postgres ROLE CLAIM from the JWT
+    (always "authenticated") — application-level admin status lives in
+    `profiles.role` instead (DATABASE_SCHEMA.md's own RLS policies check
+    exactly this column, e.g. `pois_write_admin`), so this dependency reads
+    the real profile row rather than trusting anything client-supplied."""
+    profile = await ProfilesRepository().get_by_id(user.id)
+    if profile is None or profile.get("role") != "admin":
+        raise ForbiddenError("This action requires an administrator role.")
+    return user

@@ -16,6 +16,7 @@ from app.core.rate_limit import ai_rate_limit
 from app.core.security import AuthenticatedUser
 from app.repositories.trips_repository import TripsRepository
 from app.schemas.common import Envelope, Meta
+from app.schemas.feedback import TripFeedbackRequest, TripFeedbackResponse
 from app.schemas.trips import (
     ItineraryGenerateRequest,
     ItineraryGenerateResponse,
@@ -29,7 +30,13 @@ from app.schemas.trips import (
     TripResponse,
     TripUpdateRequest,
 )
-from app.services import idea_extraction_service, itinerary_service, modification_service
+from app.services import (
+    analytics_service,
+    feedback_service,
+    idea_extraction_service,
+    itinerary_service,
+    modification_service,
+)
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -109,6 +116,10 @@ async def update_trip(
     updated = await repo.update_trip(trip_id, **body.model_dump(exclude_none=True))
     if updated is None:
         raise NotFoundError("This trip could not be found.")
+    if body.status == "active":
+        await analytics_service.track(user.id, "trip_started", {"trip_id": trip_id})
+    elif body.status == "completed":
+        await analytics_service.track(user.id, "trip_completed", {"trip_id": trip_id})
     return Envelope(data=TripResponse.model_validate(_trip_to_response(updated)))
 
 
@@ -222,3 +233,11 @@ async def update_itinerary_item(
     if updated is None:
         raise NotFoundError("This itinerary item could not be found.")
     return Envelope(data=ItineraryItemResponse.model_validate(_item_to_response(updated)))
+
+
+@router.post("/{trip_id}/feedback", response_model=Envelope[TripFeedbackResponse], status_code=201)
+async def submit_trip_feedback(
+    trip_id: str, body: TripFeedbackRequest, user: AuthenticatedUser = Depends(get_current_user)
+) -> Envelope[TripFeedbackResponse]:
+    result = await feedback_service.submit_feedback(trip_id, user.id, body)
+    return Envelope(data=TripFeedbackResponse.model_validate(result))

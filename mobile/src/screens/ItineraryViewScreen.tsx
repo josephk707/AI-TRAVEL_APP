@@ -1,6 +1,7 @@
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -95,6 +96,32 @@ export function ItineraryViewScreen(): React.JSX.Element {
       <View style={styles.header}>
         <Text style={styles.title}>{state.trip.title}</Text>
         <Text style={styles.subtitle}>{state.trip.destination}</Text>
+        <View style={styles.toolsRow}>
+          <ToolButton
+            icon="wallet-outline"
+            label="Budget"
+            testID="open-budget-button"
+            onPress={() => navigation.navigate("BudgetView", { tripId })}
+          />
+          <ToolButton
+            icon="images-outline"
+            label="Memories"
+            testID="open-memory-box-button"
+            onPress={() => navigation.navigate("MemoryBox", { tripId })}
+          />
+          <ToolButton
+            icon="chatbubbles-outline"
+            label="Phrases"
+            testID="open-phrasebook-button"
+            onPress={() => navigation.navigate("Phrasebook", { tripId })}
+          />
+          <ToolButton
+            icon="navigate-outline"
+            label="On-trip"
+            testID="open-on-trip-companion-button"
+            onPress={() => navigation.navigate("OnTripCompanion", { tripId })}
+          />
+        </View>
       </View>
 
       {totalStops === 0 ? (
@@ -136,6 +163,25 @@ export function ItineraryViewScreen(): React.JSX.Element {
   );
 }
 
+function ToolButton({
+  icon,
+  label,
+  onPress,
+  testID,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>["name"];
+  label: string;
+  onPress: () => void;
+  testID: string;
+}): React.JSX.Element {
+  return (
+    <Pressable style={styles.toolButton} onPress={onPress} accessibilityRole="button" testID={testID}>
+      <Ionicons name={icon} size={20} color={colors.primary} />
+      <Text style={styles.toolButtonLabel}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
@@ -148,6 +194,9 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.title, color: colors.text },
   subtitle: { ...typography.body, color: colors.textMuted },
+  toolsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  toolButton: { alignItems: "center", gap: 2, flex: 1 },
+  toolButtonLabel: { ...typography.caption, color: colors.primary },
   content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl * 2 },
   daySection: { gap: spacing.sm },
   dayHeading: { ...typography.subtitle, color: colors.text },

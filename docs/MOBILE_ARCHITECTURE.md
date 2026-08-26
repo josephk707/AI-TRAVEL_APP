@@ -114,13 +114,26 @@ tripUIMode = trip.status === 'active' ? 'on_trip' : 'planning'
    location-dependent component, not scattered permission checks
 ```
 
+**Phase 7 implementation note (read before assuming step 2 above is built):** `OnTripCompanionScreen`
+implements step 1 (foreground `watchPositionAsync`, active only while the screen is mounted, plus an
+explicit "Check in now" manual trigger) and steps 3/4 in full, against the real F7 backend
+(`POST /trips/{id}/location/{consent,ping,manual}`, `GET /trips/{id}/nearby`). Step 2 — a true
+`expo-task-manager` background task (`TaskManager.defineTask` + `Location.startLocationUpdatesAsync`
+with `ACCESS_BACKGROUND_LOCATION`/iOS "Always" permission) and the custom pre-permission explainer
+screen referenced in §3 — is **NOT implemented this phase**. `expo-location` itself is installed and
+configured (`app.config.js`'s `expo-location` plugin), but the always-on background variant requires
+native permission flows and battery/OS-kill behavior this environment has no physical device or
+simulator to verify, and was judged unsafe to ship unverified. Documented here as a deliberate,
+real scope boundary (CLAUDE.md §13), not a silent gap — tracked in `docs/PHASE_STATUS.md`'s Phase 7
+section as a specific Known Limitation.
+
 ---
 
 ## 6. Camera / Photo Q&A (FR-008) & Memory Box Uploads (FR-010)
 
 - Shared `useCameraCapture()` hook wraps `expo-image-picker`/`expo-camera`, used by both `PhotoQAScreen` and `MemoryBoxScreen` upload flow — same capture UX, different destination.
 - Photo Q&A: capture → local preview → question composer (text or voice-to-text via device dictation, no custom speech pipeline needed for MVP) → `POST /heritage/{poi_id}/photo-qa`. Poor-quality capture is caught client-side first (basic blur/size heuristic) before the network call, to avoid a round trip for an obviously unusable image; the server-side check (`AI_ARCHITECTURE.md` §6) remains the authoritative gate.
-- Memory Box: capture/select → client requests a signed upload URL (`POST /trips/{id}/memory-items`) → direct-to-Supabase-Storage upload → metadata confirmed only after upload success (matches `API_SPECIFICATION.md` §10's "no orphaned ghost item" contract). Upload progress and retry-on-failure are handled client-side; failures are surfaced explicitly, never silently dropped (FR-010 exception flow).
+- Memory Box (Phase 7, `MemoryBoxScreen`): capture/select via `expo-image-picker` → the mobile client's own authenticated Supabase session uploads the file **directly** to the `memory-items` Storage bucket (RLS-mediated, migration `20260825120013`) → `POST /trips/{id}/memory-items` records the resulting metadata only after the upload itself succeeds. No backend-issued signed URL is involved — the client's own session already satisfies the bucket's RLS policy, so a signed-URL round trip through the backend would be redundant (documented decision, `app/services/memory_service.py`'s own module docstring). Upload/delete failures are surfaced explicitly via an inline error state, never silently dropped (FR-010 exception flow).
 
 ---
 
@@ -133,7 +146,11 @@ tripUIMode = trip.status === 'active' ? 'on_trip' : 'planning'
    sos, group_invite, reminder, system
 3. Foreground notifications render as an in-app banner (not a native OS banner while the app is
    open) to avoid interrupting the current screen unnecessarily — tapping opens the relevant
-   screen (deep link via notification payload)
+   screen (deep link via notification payload). **Phase 7 note:** as built,
+   `src/notifications/pushNotifications.ts` uses Expo's own native foreground banner
+   (`setNotificationHandler({ shouldShowBanner: true, ... })`) rather than a custom in-app banner
+   component — a real, working simplification, not a gap; a custom banner UI can be layered on
+   later without changing the registration/delivery path documented here.
 4. NotificationsCentreScreen is the guaranteed fallback channel (§24) — every notification is
    also written to the notifications table and visible there even if push delivery failed
 5. Notification volume is intentionally kept low per §21.2 — the client does not add its own

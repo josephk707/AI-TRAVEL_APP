@@ -39,6 +39,19 @@ module.exports = {
     web: {
       favicon: "./assets/favicon.png",
     },
-    plugins: ["expo-secure-store", "expo-web-browser", "expo-asset", "expo-audio"],
+    plugins: [
+      "expo-secure-store",
+      "expo-web-browser",
+      "expo-asset",
+      "expo-audio",
+      [
+        "expo-location",
+        {
+          locationAlwaysAndWhenInUsePermission:
+            "Yatra AI uses your location, once you enable it for a trip, to detect arrivals at planned stops and suggest what's nearby.",
+        },
+      ],
+      "expo-notifications",
+    ],
   },
 };
