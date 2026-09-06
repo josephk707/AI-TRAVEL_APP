@@ -2,7 +2,6 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
@@ -11,12 +10,18 @@ import { BottomNavBar } from "../components/BottomNavBar";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { TripCard } from "../components/TripCard";
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, spacing, typography } from "../theme/tokens";
+import {
+  spacing,
+  type Theme,
+  typography,
+  useResponsive,
+  useThemedStyles,
+} from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -38,6 +43,10 @@ export function TripsListScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<RootStackParamList, "TripsList">>();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const styles = useThemedStyles(createStyles);
+  const responsive = useResponsive();
+  const columns = responsive.columnsFor(320, spacing.sm);
+  const itemWidth = responsive.itemWidthFor(columns, spacing.sm, spacing.lg);
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   const load = useCallback(() => {
@@ -59,67 +68,90 @@ export function TripsListScreen(): React.JSX.Element {
   }, [navigation, load]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
-      <StatusBar style="light" />
-      <View style={styles.header}>
-        <Text style={styles.title}>{t("trips.title")}</Text>
-        <Button
-          label={`+ ${t("trips.newTrip")}`}
-          onPress={() => navigation.navigate("TripCreation")}
-          testID="new-trip-button"
-          fullWidth={false}
-        />
-      </View>
-
-      {state.status === "loading" && <LoadingView label={t("trips.loading")} />}
-
-      {state.status === "error" && (
-        <View style={styles.centered} testID="trips-error">
-          <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={load} testID="trips-retry-button" />
+        <View style={styles.header}>
+          <Text style={styles.title}>{t("trips.title")}</Text>
+          <Button
+            label={`+ ${t("trips.newTrip")}`}
+            onPress={() => navigation.navigate("TripCreation")}
+            testID="new-trip-button"
+            fullWidth={false}
+          />
         </View>
-      )}
 
-      {state.status === "success" && state.trips.length === 0 && (
-        <View style={styles.centered} testID="trips-empty">
-          <EmptyState icon="map-outline" title={t("trips.emptyTitle")} message={t("trips.emptySubtitle")} />
-        </View>
-      )}
+        {state.status === "loading" && <LoadingView label={t("trips.loading")} />}
 
-      {state.status === "success" && state.trips.length > 0 && (
-        <FlatList
-          data={state.trips}
-          keyExtractor={(trip) => trip.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <TripCard
-              trip={item}
-              testID={`trip-card-${item.id}`}
-              onPress={() =>
-                navigation.navigate(
-                  item.generation_status === "none" ? "Chat" : "ItineraryView",
-                  { tripId: item.id },
-                )
-              }
+        {state.status === "error" && (
+          <View style={styles.centered} testID="trips-error">
+            <ErrorState
+              message={state.message}
+              retryLabel={t("common.retry")}
+              onRetry={load}
+              testID="trips-retry-button"
             />
-          )}
-        />
-      )}
+          </View>
+        )}
+
+        {state.status === "success" && state.trips.length === 0 && (
+          <View style={styles.centered} testID="trips-empty">
+            <EmptyState
+              icon="map-outline"
+              title={t("trips.emptyTitle")}
+              message={t("trips.emptySubtitle")}
+            />
+          </View>
+        )}
+
+        {state.status === "success" && state.trips.length > 0 && (
+          <FlatList
+            // numColumns cannot change on a mounted list — remount per width class.
+            key={`trips-${columns}`}
+            data={state.trips}
+            keyExtractor={(trip) => trip.id}
+            numColumns={columns}
+            columnWrapperStyle={columns > 1 ? styles.gridRow : undefined}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <View style={columns > 1 ? { width: itemWidth } : styles.fullWidth}>
+                <TripCard
+                  trip={item}
+                  testID={`trip-card-${item.id}`}
+                  onPress={() =>
+                    navigation.navigate(
+                      item.generation_status === "none" ? "Chat" : "ItineraryView",
+                      { tripId: item.id },
+                    )
+                  }
+                />
+              </View>
+            )}
+          />
+        )}
       </View>
       <BottomNavBar active="TripsList" />
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: spacing.lg,
-  },
-  title: { ...typography.title, color: colors.text },
-  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm, paddingBottom: spacing.xxl },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1 },
+    header: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: spacing.lg,
+    },
+    title: { ...typography.title, color: colors.text },
+    list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm, paddingBottom: spacing.xxl },
+    gridRow: { gap: spacing.sm },
+    fullWidth: { width: "100%" },
+    centered: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      gap: spacing.sm,
+    },
+  });

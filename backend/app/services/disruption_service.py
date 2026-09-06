@@ -84,7 +84,10 @@ async def check_for_disruptions(trip_id: str) -> list[dict]:
                 continue
 
             alternatives = await _find_alternatives(
-                item["poi_lat"], item["poi_lng"], item["poi_category"], str(item["poi_id"])
+                item["poi_lat"],
+                item["poi_lng"],
+                item["poi_category"],
+                str(item["poi_id"]) if item.get("poi_id") else "",
             )
             reason = (
                 f"Adverse weather is forecast for {item['poi_name']} on {day['date'].isoformat()}."

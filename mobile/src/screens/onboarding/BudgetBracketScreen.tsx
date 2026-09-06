@@ -9,13 +9,14 @@ import type { OnboardingStackParamList } from "../../navigation/OnboardingNaviga
 import { BUDGET_BRACKET_OPTIONS } from "../../onboarding/onboardingOptions";
 import { useOnboardingStore } from "../../onboarding/onboardingStore";
 import { useSubmitOnboarding } from "../../onboarding/useSubmitOnboarding";
-import { colors, spacing, typography } from "../../theme/tokens";
+import { spacing, type Theme, typography, useThemedStyles } from "../../theme";
 
 export function BudgetBracketScreen(): React.JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<OnboardingStackParamList, "BudgetBracket">>();
   const { budgetBracket, setBudgetBracket } = useOnboardingStore();
   const { submit, state: submitState, errorMessage: submitError } = useSubmitOnboarding();
+  const styles = useThemedStyles(createStyles);
 
   const handleSkip = useCallback(async () => {
     await submit();
@@ -55,7 +56,8 @@ export function BudgetBracketScreen(): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  optionGroup: { gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    optionGroup: { gap: spacing.sm },
+    errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
+  });

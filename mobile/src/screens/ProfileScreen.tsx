@@ -1,10 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { LinearGradient } from "expo-linear-gradient";
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fetchMyProfile, ProfileData } from "../api/auth";
@@ -14,11 +12,11 @@ import { useAuth } from "../auth/AuthContext";
 import { BottomNavBar } from "../components/BottomNavBar";
 import { Card } from "../components/Card";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, gradients, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -35,6 +33,8 @@ export function ProfileScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   // Resolves the next state without setting it itself (matches
@@ -107,8 +107,7 @@ export function ProfileScreen(): React.JSX.Element {
   ];
 
   return (
-    <GradientBackground>
-      <StatusBar style="light" />
+    <Screen>
       <ScrollView
         contentContainerStyle={[
           styles.container,
@@ -118,19 +117,19 @@ export function ProfileScreen(): React.JSX.Element {
         <Text style={styles.title}>{t("profile.title")}</Text>
 
         {state.status === "loading" && (
-          <Card style={styles.centerCard}>
+          <Card style={styles.centerCard} variant="flat">
             <LoadingView label={t("home.loadingProfile")} />
           </Card>
         )}
 
         {state.status === "error" && (
-          <Card style={styles.centerCard}>
+          <Card style={styles.centerCard} variant="flat">
             <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={load} />
           </Card>
         )}
 
         {state.status === "success" && (
-          <Card style={styles.identityCard} testID="profile-success">
+          <Card style={styles.identityCard} variant="flat" testID="profile-success">
             <View style={styles.avatar}>
               <Text style={styles.avatarLabel}>{initial}</Text>
             </View>
@@ -143,23 +142,19 @@ export function ProfileScreen(): React.JSX.Element {
 
         <Text style={styles.sectionLabel}>Your Travel DNA</Text>
         {dnaState.status === "loading" && (
-          <Card style={styles.centerCard} testID="travel-dna-loading">
+          <Card style={styles.centerCard} variant="flat" testID="travel-dna-loading">
             <LoadingView label="Building your Travel DNA…" />
           </Card>
         )}
         {dnaState.status === "error" && (
-          <Card style={styles.centerCard} testID="travel-dna-error">
+          <Card style={styles.centerCard} variant="flat" testID="travel-dna-error">
             <ErrorState message={dnaState.message} retryLabel={t("common.retry")} onRetry={loadDna} />
           </Card>
         )}
         {dnaState.status === "success" && (
-          <LinearGradient
-            colors={gradients.card}
-            style={styles.dnaCard}
-            testID="travel-dna-success"
-          >
+          <View style={styles.dnaCard} testID="travel-dna-success">
             <View style={styles.dnaHeader}>
-              <Ionicons name="sparkles" size={20} color={colors.gold} />
+              <Ionicons name="sparkles" size={20} color={colors.text} />
               <Text style={styles.dnaPersonality}>{dnaState.dna.travel_personality}</Text>
             </View>
             <Text style={styles.dnaSummary}>{dnaState.dna.summary}</Text>
@@ -188,7 +183,7 @@ export function ProfileScreen(): React.JSX.Element {
                 as you go.
               </Text>
             )}
-          </LinearGradient>
+          </View>
         )}
 
         <Text style={styles.sectionLabel}>{t("profile.accountSection")}</Text>
@@ -205,7 +200,7 @@ export function ProfileScreen(): React.JSX.Element {
               ]}
             >
               <View style={styles.linkIconBadge}>
-                <Ionicons name={link.icon} size={18} color={colors.primary} />
+                <Ionicons name={link.icon} size={18} color={colors.text} />
               </View>
               <Text style={styles.linkLabel}>{link.label}</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
@@ -214,68 +209,81 @@ export function ProfileScreen(): React.JSX.Element {
         </Card>
       </ScrollView>
       <BottomNavBar active="Profile" />
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flexGrow: 1, paddingHorizontal: spacing.lg, gap: spacing.md },
-  title: { ...typography.title, color: colors.text },
-  centerCard: { alignItems: "center", paddingVertical: spacing.xl },
-  identityCard: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarLabel: { ...typography.title, color: colors.primaryText },
-  identityText: { flex: 1, gap: 2 },
-  name: { ...typography.h1, color: colors.text },
-  email: { ...typography.caption, color: colors.textMuted },
-  sectionLabel: { ...typography.captionMedium, color: colors.textMuted, marginTop: spacing.sm },
-  dnaCard: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    padding: spacing.lg,
-    gap: spacing.sm,
-  },
-  dnaHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  dnaPersonality: { ...typography.h1, color: colors.text },
-  dnaSummary: { ...typography.body, color: colors.textMuted },
-  dnaStatsRow: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.xs },
-  dnaStat: { gap: 2 },
-  dnaStatValue: { ...typography.h2, color: colors.text },
-  dnaStatLabel: { ...typography.caption, color: colors.textMuted },
-  dnaChipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.xs },
-  dnaChip: {
-    backgroundColor: colors.primarySoft,
-    borderRadius: radius.pill,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  dnaChipText: { ...typography.captionMedium, color: colors.accent },
-  dnaHint: { ...typography.caption, color: colors.textFaint, marginTop: spacing.xs },
-  linksCard: { padding: 0, overflow: "hidden" },
-  linkRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  linkRowDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
-  linkRowPressed: { backgroundColor: colors.surfaceAlt },
-  linkIconBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.md,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  linkLabel: { ...typography.bodyMedium, color: colors.text, flex: 1 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { flexGrow: 1, paddingHorizontal: spacing.lg, gap: spacing.md },
+    title: { ...typography.title, color: colors.text },
+    centerCard: { alignItems: "center", paddingVertical: spacing.xl },
+    identityCard: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+    avatar: {
+      width: 60,
+      height: 60,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    avatarLabel: { ...typography.title, color: colors.text },
+    identityText: { flex: 1, gap: 2 },
+    name: { ...typography.h1, color: colors.text },
+    email: { ...typography.caption, color: colors.textMuted },
+    sectionLabel: {
+      ...typography.micro,
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      marginTop: spacing.sm,
+    },
+    dnaCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      gap: spacing.sm,
+    },
+    dnaHeader: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+    dnaPersonality: { ...typography.h1, color: colors.text },
+    dnaSummary: { ...typography.body, color: colors.textMuted },
+    dnaStatsRow: { flexDirection: "row", gap: spacing.lg, marginTop: spacing.xs },
+    dnaStat: { gap: 2 },
+    dnaStatValue: { ...typography.h2, color: colors.text },
+    dnaStatLabel: { ...typography.caption, color: colors.textMuted },
+    dnaChipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs, marginTop: spacing.xs },
+    dnaChip: {
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+    },
+    dnaChipText: { ...typography.captionMedium, color: colors.text },
+    dnaHint: { ...typography.caption, color: colors.textFaint, marginTop: spacing.xs },
+    linksCard: { padding: 0, overflow: "hidden" },
+    linkRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+    },
+    linkRowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+    linkRowPressed: { backgroundColor: colors.surfaceAlt },
+    linkIconBadge: {
+      width: 34,
+      height: 34,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    linkLabel: { ...typography.bodyMedium, color: colors.text, flex: 1 },
+  });

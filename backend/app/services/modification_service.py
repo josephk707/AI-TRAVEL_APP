@@ -32,6 +32,12 @@ from app.services.ai.factory import get_llm_gateway
 from app.services.ai.language import language_instruction
 from app.services.ai.llm_gateway import GenerationConfig, LLMMessage, LLMProviderError, MessageRole
 from app.services.ai.prompts import modification as modification_prompts
+from app.services.place_grounding_service import (
+    PlaceGrounder,
+    ProposedPlace,
+    get_geocoder,
+    resolve_destination_centre,
+)
 
 logger = logging.getLogger("app.services.modification")
 
@@ -43,14 +49,28 @@ logger = logging.getLogger("app.services.modification")
 _MAX_HISTORY_MESSAGES = 10
 
 
+_PlaceCategory = Literal["heritage", "restaurant", "attraction", "nature", "shopping", "other"]
+
+
 class _ItemChange(BaseModel):
+    """One scoped change. Exactly one of: an existing `item_id` (edit / move
+    via `day_number`), a `candidate_index` from KNOWN PLACES (add), or a
+    `new_place_name` the model knows (add — grounded by the backend before
+    it is persisted, AI-first itinerary phase)."""
+
     item_id: str | None = None
-    candidate_index: int | None = None
-    day_number: int | None = None
+    candidate_index: int | None = Field(default=None, ge=0)
+    day_number: int | None = Field(default=None, ge=1, le=21)
     planned_start: str | None = None
-    estimated_duration_min: int | None = None
+    estimated_duration_min: int | None = Field(default=None, ge=15, le=600)
+    estimated_cost: float | None = Field(default=None, ge=0)
     status: Literal["planned", "confirmed", "skipped", "completed"] | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=500)
+    new_place_name: str | None = Field(default=None, max_length=200)
+    new_place_area: str | None = Field(default=None, max_length=200)
+    new_place_category: _PlaceCategory | None = None
+    new_place_lat: float | None = Field(default=None, ge=-90, le=90)
+    new_place_lng: float | None = Field(default=None, ge=-180, le=180)
 
 
 class _ModificationResult(BaseModel):
@@ -110,21 +130,38 @@ def _build_profile_block(profile: dict[str, Any], interest_labels: list[str]) ->
     return "TRAVELLER PROFILE:\n" + "\n".join(lines) + "\n\n"
 
 
-def _build_context_message(days: list[dict[str, Any]], candidates: list[dict], message: str) -> str:
+def _build_context_message(
+    days: list[dict[str, Any]],
+    candidates: list[dict],
+    message: str,
+    trip: dict[str, Any] | None = None,
+) -> str:
     current_lines = []
     for day in days:
+        date_text = f" ({day['date'].isoformat()})" if day.get("date") else ""
         for item in day["items"]:
+            note = f" notes='{item['notes']}'" if item.get("notes") else ""
+            area = f" area='{item['place_area']}'" if item.get("place_area") else ""
             current_lines.append(
-                f"item_id={item['id']} day={day['day_number']} "
-                f"place='{item.get('poi_name') or 'unassigned'}' "
+                f"item_id={item['id']} day={day['day_number']}{date_text} "
+                f"place='{item.get('poi_name') or 'unassigned'}'{area} "
                 f"start={item.get('planned_start')} end={item.get('planned_end')} "
-                f"status={item.get('status')}"
+                f"cost={item.get('estimated_cost')} status={item.get('status')}{note}"
             )
     candidate_lines = [f"{i}. {c['name']} ({c['category']})" for i, c in enumerate(candidates)]
+    trip_lines = []
+    if trip:
+        trip_lines = [
+            f"TRIP: destination='{trip.get('destination')}' "
+            f"dates={trip.get('start_date')} to {trip.get('end_date')} "
+            f"budget={trip.get('budget_planned')} {trip.get('budget_currency') or ''}",
+            "",
+        ]
     return (
-        "CURRENT ITINERARY:\n"
+        "\n".join(trip_lines)
+        + "CURRENT ITINERARY:\n"
         + "\n".join(current_lines or ["(empty)"])
-        + "\n\nCANDIDATE PLACE LIST (for adding new stops only):\n"
+        + "\n\nKNOWN PLACES (optional, for adding stops by candidate_index):\n"
         + "\n".join(candidate_lines or ["(none)"])
         + f"\n\nTraveller's request: {message}"
     )
@@ -189,7 +226,7 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
                 LLMMessage(
                     MessageRole.USER,
                     _build_profile_block(profile, interest_labels)
-                    + _build_context_message(days, candidates, message),
+                    + _build_context_message(days, candidates, message, trip),
                 ),
             ],
             response_schema=_ModificationResult,
@@ -213,6 +250,23 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
     changed_item_ids: list[str] = []
     rejected_notes: list[str] = []
     feedback_repo = FeedbackRepository()
+
+    grounder_cache: list[PlaceGrounder] = []
+
+    async def _get_grounder() -> PlaceGrounder:
+        # Built lazily — only a request that actually adds a new named
+        # place pays for resolving the destination centre.
+        if not grounder_cache:
+            geocoder = get_geocoder()
+            centre, _ = await resolve_destination_centre(
+                trip["destination"],
+                known=(trip.get("destination_lat"), trip.get("destination_lng")),
+                geocoder=geocoder,
+            )
+            grounder_cache.append(
+                PlaceGrounder(trip["destination"], centre, candidates, geocoder=geocoder)
+            )
+        return grounder_cache[0]
 
     for change in result.changes:
         if change.item_id is not None:
@@ -251,8 +305,18 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
                 )
                 if proposed.get(k) != existing.get(k)
             }
+            if change.estimated_cost is not None and change.estimated_cost != existing.get(
+                "estimated_cost"
+            ):
+                update_fields["estimated_cost"] = change.estimated_cost
+            moved = change.day_number is not None and change.day_number != existing.get(
+                "day_number"
+            )
             if update_fields:
                 await trips_repo.update_item(str(existing["id"]), trip_id, **update_fields)
+            if moved:
+                await trips_repo.move_item_to_day(str(existing["id"]), trip_id, change.day_number)  # type: ignore[arg-type]
+            if update_fields or moved:
                 changed_item_ids.append(str(existing["id"]))
                 if existing.get("source") == "ai" and change.status == "skipped":
                     await feedback_repo.log_signal(
@@ -262,6 +326,45 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
                         signal_type="explicit_correction",
                         value={"action": "removed_ai_suggestion"},
                     )
+        elif change.new_place_name and change.day_number is not None:
+            # AI-first itinerary phase: a real place the model knows, verified
+            # by the same grounding path generation uses before it is saved.
+            grounder = await _get_grounder()
+            grounded = await grounder.ground(
+                ProposedPlace(
+                    name=change.new_place_name.strip(),
+                    area=change.new_place_area,
+                    category=change.new_place_category,
+                    lat=change.new_place_lat,
+                    lng=change.new_place_lng,
+                )
+            )
+            if not grounded.name:
+                continue
+            duration = change.estimated_duration_min or 120
+            planned_start = change.planned_start or "10:00"
+            fields = grounded.as_item_fields()
+            new_item = await trips_repo.insert_item(
+                trip_id,
+                change.day_number,
+                **fields,
+                planned_start=planned_start,
+                planned_end=business_rules.compute_planned_end(planned_start, duration),
+                estimated_duration_min=duration,
+                estimated_cost=(
+                    change.estimated_cost
+                    if change.estimated_cost is not None
+                    else grounded.avg_cost
+                ),
+                source="ai",
+                notes=change.notes,
+                sequence_order=1000,
+                verify_on_arrival=(
+                    grounded.opening_hours is None
+                    or grounded.location_source in ("ai_estimate", "unresolved")
+                ),
+            )
+            changed_item_ids.append(str(new_item["id"]))
         elif change.candidate_index is not None and change.day_number is not None:
             if change.candidate_index < 0 or change.candidate_index >= len(candidates):
                 continue
@@ -272,13 +375,23 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
                 trip_id,
                 change.day_number,
                 poi_id=str(candidate["id"]),
+                place_name=candidate["name"],
+                place_category=candidate.get("category"),
+                place_lat=candidate.get("lat"),
+                place_lng=candidate.get("lng"),
+                location_source="poi",
                 planned_start=planned_start,
                 planned_end=business_rules.compute_planned_end(planned_start, duration),
                 estimated_duration_min=duration,
-                estimated_cost=candidate.get("avg_cost"),
+                estimated_cost=(
+                    change.estimated_cost
+                    if change.estimated_cost is not None
+                    else candidate.get("avg_cost")
+                ),
                 source="ai",
                 notes=change.notes,
                 sequence_order=1000,
+                verify_on_arrival=candidate.get("opening_hours") is None,
             )
             changed_item_ids.append(str(new_item["id"]))
 

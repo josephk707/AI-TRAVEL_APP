@@ -1,5 +1,10 @@
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import {
+  DarkTheme,
+  DefaultTheme,
+  NavigationContainer,
+  type Theme as NavigationTheme,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import { useAuth } from "../auth/AuthContext";
@@ -28,8 +33,9 @@ import { SignInScreen } from "../screens/SignInScreen";
 import { TranslateScreen } from "../screens/TranslateScreen";
 import { TripCreationScreen } from "../screens/TripCreationScreen";
 import { TripsListScreen } from "../screens/TripsListScreen";
-import { colors } from "../theme/tokens";
 import { StyleSheet, View } from "react-native";
+
+import { type Theme, useTheme, useThemedStyles } from "../theme";
 
 /**
  * Navigation foundation (MOBILE_ARCHITECTURE.md §2).
@@ -76,8 +82,30 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+/** Map the app theme onto react-navigation's theme so screen
+ * transitions and the container behind them use the same page color —
+ * no white flash in dark mode, no dark flash in light mode. */
+function toNavigationTheme(theme: Theme): NavigationTheme {
+  const base = theme.isDark ? DarkTheme : DefaultTheme;
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      primary: theme.colors.primary,
+      background: theme.colors.background,
+      card: theme.colors.backgroundElevated,
+      text: theme.colors.text,
+      border: theme.colors.border,
+      notification: theme.colors.error,
+    },
+  };
+}
+
 export function RootNavigator(): React.JSX.Element {
   const { state, onboardingCompleted } = useAuth();
+  const theme = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const navigationTheme = React.useMemo(() => toNavigationTheme(theme), [theme]);
 
   const stillCheckingOnboarding = state === "AUTHENTICATED" && onboardingCompleted === null;
 
@@ -90,7 +118,7 @@ export function RootNavigator(): React.JSX.Element {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {state === "AUTHENTICATED" ? (
           onboardingCompleted ? (
@@ -129,6 +157,7 @@ export function RootNavigator(): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: "center", backgroundColor: colors.background },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    loadingContainer: { flex: 1, justifyContent: "center", backgroundColor: colors.background },
+  });

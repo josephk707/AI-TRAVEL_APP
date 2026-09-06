@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import * as Location from "expo-location";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -26,11 +25,11 @@ import { fetchItinerary, ItineraryItem } from "../api/trips";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -48,6 +47,8 @@ export function OnTripCompanionScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "OnTripCompanion">>();
   const { tripId } = route.params;
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [consent, setConsentState] = useState(false);
@@ -224,9 +225,8 @@ export function OnTripCompanionScreen(): React.JSX.Element {
   );
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
-      <StatusBar style="light" />
       <ScreenHeader title="On-trip companion" />
 
       <View style={styles.consentRow} testID="location-consent-row">
@@ -236,7 +236,14 @@ export function OnTripCompanionScreen(): React.JSX.Element {
             Detects when you arrive at a planned stop and suggests what&apos;s nearby.
           </Text>
         </View>
-        <Switch value={consent} onValueChange={(v) => void toggleConsent(v)} testID="location-consent-switch" />
+        <Switch
+          value={consent}
+          onValueChange={(v) => void toggleConsent(v)}
+          trackColor={{ false: colors.surfaceHighlight, true: colors.primary }}
+          thumbColor={consent ? colors.primaryText : colors.white}
+          ios_backgroundColor={colors.surfaceHighlight}
+          testID="location-consent-switch"
+        />
       </View>
 
       {permissionError && (
@@ -283,17 +290,20 @@ export function OnTripCompanionScreen(): React.JSX.Element {
 
       {disruptions.map((event) => (
         <View key={event.id} style={styles.disruptionCard} testID={`disruption-${event.id}`}>
-          <Text style={styles.disruptionReason}>{event.proposal.reason}</Text>
+          <View style={styles.disruptionReasonRow}>
+            <Ionicons name="alert-circle-outline" size={18} color={colors.warning} />
+            <Text style={styles.disruptionReason}>{event.proposal.reason}</Text>
+          </View>
           {event.proposal.alternatives.map((alt, index) => (
             <Pressable
               key={alt.poi_id}
-              style={styles.alternativeRow}
+              style={({ pressed }) => [styles.alternativeRow, pressed && styles.rowPressed]}
               onPress={() => void resolveNow(event, "accept", index)}
               testID={`accept-alternative-${event.id}-${index}`}
               accessibilityRole="button"
             >
               <Text style={styles.alternativeText}>Switch to {alt.poi_name}</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+              <Ionicons name="chevron-forward" size={16} color={colors.textFaint} />
             </Pressable>
           ))}
           <Pressable
@@ -338,7 +348,7 @@ export function OnTripCompanionScreen(): React.JSX.Element {
           contentContainerStyle={styles.list}
           renderItem={({ item }) => (
             <Pressable
-              style={styles.stopRow}
+              style={({ pressed }) => [styles.stopRow, pressed && styles.rowPressed]}
               onPress={() => void confirmArrivalManually(item)}
               testID={`manual-arrival-${item.id}`}
               accessibilityRole="button"
@@ -350,85 +360,116 @@ export function OnTripCompanionScreen(): React.JSX.Element {
         />
       )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  header: { padding: spacing.lg, paddingBottom: spacing.sm },
-  title: { ...typography.title, color: colors.text },
-  consentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  consentTextGroup: { flex: 1, gap: 2 },
-  consentLabel: { ...typography.body, color: colors.text },
-  consentHint: { ...typography.caption, color: colors.textMuted },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center", marginHorizontal: spacing.lg, marginTop: spacing.sm },
-  actionsRow: { marginHorizontal: spacing.lg, marginTop: spacing.md, alignItems: "flex-start" },
-  arrivalBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    backgroundColor: colors.successSoft,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-  },
-  arrivalText: { ...typography.body, color: colors.success },
-  nearbySection: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: 2 },
-  nearbyItem: { ...typography.caption, color: colors.textMuted },
-  disruptionsHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-  },
-  checkNowText: { ...typography.caption, color: colors.primary },
-  disruptionCard: {
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    backgroundColor: colors.warningSoft,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  disruptionReason: { ...typography.body, color: colors.text },
-  alternativeRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: colors.background,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-  },
-  alternativeText: { ...typography.body, color: colors.primary },
-  dismissText: { ...typography.caption, color: colors.textMuted, alignSelf: "flex-end" },
-  sectionHeading: { ...typography.subtitle, color: colors.text, marginHorizontal: spacing.lg },
-  remainingHeading: { marginTop: spacing.md },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  emptyText: { ...typography.body, color: colors.textMuted },
-  list: { padding: spacing.lg, gap: spacing.sm },
-  stopRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  stopName: { ...typography.body, color: colors.text, flex: 1 },
-  stopAction: { ...typography.caption, color: colors.primary },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    consentRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+    },
+    consentTextGroup: { flex: 1, gap: 2 },
+    consentLabel: { ...typography.bodyMedium, color: colors.text },
+    consentHint: { ...typography.caption, color: colors.textMuted },
+    errorText: {
+      ...typography.body,
+      color: colors.error,
+      textAlign: "center",
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.sm,
+    },
+    actionsRow: { marginHorizontal: spacing.lg, marginTop: spacing.md, alignItems: "flex-start" },
+    arrivalBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      backgroundColor: colors.successSoft,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.success,
+      padding: spacing.md,
+    },
+    arrivalText: { ...typography.bodyMedium, color: colors.success, flex: 1 },
+    nearbySection: { marginHorizontal: spacing.lg, marginTop: spacing.md, gap: 2 },
+    nearbyItem: { ...typography.caption, color: colors.textMuted, marginHorizontal: spacing.lg },
+    disruptionsHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+    },
+    checkNowText: { ...typography.captionMedium, color: colors.text },
+    disruptionCard: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.sm,
+      backgroundColor: colors.warningSoft,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.warning,
+      padding: spacing.md,
+      gap: spacing.sm,
+    },
+    disruptionReasonRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+    disruptionReason: { ...typography.bodyMedium, color: colors.text, flex: 1 },
+    alternativeRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      minHeight: 48,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+    },
+    alternativeText: { ...typography.bodyMedium, color: colors.text, flex: 1 },
+    dismissText: { ...typography.captionMedium, color: colors.textMuted, alignSelf: "flex-end" },
+    rowPressed: { backgroundColor: colors.surfaceAlt },
+    sectionHeading: { ...typography.subtitle, color: colors.text, marginHorizontal: spacing.lg },
+    remainingHeading: { marginTop: spacing.md },
+    centered: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      gap: spacing.sm,
+    },
+    list: { padding: spacing.lg, gap: spacing.sm },
+    stopRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      gap: spacing.sm,
+      minHeight: 60,
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+    },
+    stopName: { ...typography.subtitle, color: colors.text, flex: 1 },
+    stopAction: {
+      ...typography.captionMedium,
+      color: colors.text,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      borderRadius: radius.pill,
+      paddingVertical: spacing.xs + 2,
+      paddingHorizontal: spacing.md,
+      overflow: "hidden",
+    },
+  });

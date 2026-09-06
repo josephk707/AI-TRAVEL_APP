@@ -26,10 +26,21 @@ export interface Trip {
   updated_at: string;
 }
 
+/** How a stop's coordinates were obtained (AI-first itinerary phase):
+ * `poi` — an existing catalog place; `places_api` — verified live by
+ * geocoding; `ai_estimate` — only the planner's approximate coordinates;
+ * `unresolved` — no coordinates, navigate by name only. */
+export type LocationSource = "poi" | "places_api" | "ai_estimate" | "unresolved";
+
 export interface ItineraryItem {
   id: string;
   poi_id: string | null;
   poi_name: string | null;
+  poi_category: string | null;
+  area: string | null;
+  lat: number | null;
+  lng: number | null;
+  location_source: LocationSource;
   sequence_order: number;
   planned_start: string | null;
   planned_end: string | null;

@@ -16,17 +16,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 
 import { ApiError } from "../api/client";
 import { translateSpeech, translateText, TranslateTextResult } from "../api/translation";
 import { SelectableChip } from "../components/SelectableChip";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
-import { GradientBackground } from "../components/GradientBackground";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { LanguageCode, SUPPORTED_LANGUAGES } from "../i18n/languages";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 /** F10 (dynamic extension) — the Local Phrase Assistant's arbitrary-phrase
  * translator (ARCHITECTURE_REVIEW.md M11), plus F25's speech-input half
@@ -107,6 +106,8 @@ type TranslateState =
   | { status: "error"; message: string };
 
 export function TranslateScreen(): React.JSX.Element {
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [phrase, setPhrase] = useState("");
   const [languageCode, setLanguageCode] = useState<LanguageCode>(TRANSLATE_LANGUAGES[0].code);
   const [state, setState] = useState<TranslateState>({ status: "idle" });
@@ -281,19 +282,19 @@ export function TranslateScreen(): React.JSX.Element {
   }, [state, languageCode]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-      <StatusBar style="light" />
       <ScreenHeader title="Translate a phrase" subtitle="Up to two sentences at a time" />
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.label}>Your phrase (English)</Text>
         <TextInput
           style={[styles.input, styles.textarea]}
           placeholder="Where is the nearest railway station?"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textFaint}
+          keyboardAppearance={isDark ? "dark" : "light"}
           value={phrase}
           onChangeText={setPhrase}
           multiline
@@ -337,9 +338,16 @@ export function TranslateScreen(): React.JSX.Element {
             fullWidth={false}
           />
           {state.status === "loading" && (
-            <ActivityIndicator size="small" color={colors.primary} style={styles.spinner} />
+            <ActivityIndicator size="small" color={colors.text} style={styles.spinner} />
           )}
         </View>
+
+        {isRecording && (
+          <View style={styles.recordingRow} accessibilityLiveRegion="polite">
+            <View style={styles.recordingDot} />
+            <Text style={styles.recordingText}>Recording…</Text>
+          </View>
+        )}
 
         {permissionError && (
           <Text style={styles.errorText} testID="record-permission-error">
@@ -374,34 +382,63 @@ export function TranslateScreen(): React.JSX.Element {
         )}
       </ScrollView>
       </KeyboardAvoidingView>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
-  label: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  textarea: { minHeight: 80, textAlignVertical: "top" },
-  sentenceCount: { ...typography.caption, color: colors.textFaint, textAlign: "right" },
-  sentenceCountError: { color: colors.error },
-  submitRow: { marginTop: spacing.md, flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, alignItems: "center" },
-  spinner: { marginLeft: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
-  resultCard: { marginTop: spacing.md, gap: spacing.xs, alignItems: "flex-start" },
-  transcribedLabel: { ...typography.caption, color: colors.textMuted, fontStyle: "italic" },
-  resultLanguage: { ...typography.caption, color: colors.textMuted, textTransform: "uppercase" },
-  resultText: { ...typography.title, fontSize: 22, color: colors.text },
-  resultTransliteration: { ...typography.body, color: colors.textMuted, fontStyle: "italic" },
-  resultNote: { ...typography.caption, color: colors.warning, marginTop: spacing.xs },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    container: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
+    label: {
+      ...typography.micro,
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      marginTop: spacing.sm,
+    },
+    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 4,
+      color: colors.text,
+      ...typography.body,
+    },
+    textarea: { minHeight: 96, textAlignVertical: "top" },
+    sentenceCount: { ...typography.caption, color: colors.textFaint, textAlign: "right" },
+    sentenceCountError: { color: colors.error },
+    submitRow: {
+      marginTop: spacing.md,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: spacing.sm,
+      alignItems: "center",
+    },
+    spinner: { marginLeft: spacing.sm },
+    recordingRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs + 2,
+      marginTop: spacing.xs,
+    },
+    recordingDot: {
+      width: 8,
+      height: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.error,
+    },
+    recordingText: { ...typography.captionMedium, color: colors.error },
+    errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
+    resultCard: { marginTop: spacing.md, gap: spacing.xs, alignItems: "flex-start" },
+    transcribedLabel: { ...typography.caption, color: colors.textMuted, fontStyle: "italic" },
+    resultLanguage: {
+      ...typography.micro,
+      color: colors.textMuted,
+      textTransform: "uppercase",
+    },
+    resultText: { ...typography.title, fontSize: 22, color: colors.text },
+    resultTransliteration: { ...typography.body, color: colors.textMuted, fontStyle: "italic" },
+    resultNote: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
+  });

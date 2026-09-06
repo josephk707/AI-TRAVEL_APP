@@ -47,7 +47,7 @@ def build_user_message(facts: dict) -> str:
         lines.append(f"- Stated interests: {', '.join(facts['interests'])}")
     if facts.get("trip_motivation"):
         lines.append(
-            f"- In their own words, what makes a trip special: \"{facts['trip_motivation']}\""
+            f'- In their own words, what makes a trip special: "{facts["trip_motivation"]}"'
         )
     if facts.get("favorite_categories"):
         top = ", ".join(f"{k} ({v})" for k, v in facts["favorite_categories"].items())

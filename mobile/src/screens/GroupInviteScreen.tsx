@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,11 +21,11 @@ import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -43,6 +42,8 @@ export function GroupInviteScreen(): React.JSX.Element {
   const { tripId } = route.params;
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [invite, setInvite] = useState<Invite | null>(null);
@@ -144,9 +145,8 @@ export function GroupInviteScreen(): React.JSX.Element {
   }, [tripId]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
-      <StatusBar style="light" />
       <ScreenHeader title="Group trip" />
 
       {state.status === "loading" && (
@@ -187,7 +187,8 @@ export function GroupInviteScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder="Paste invite code"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={colors.textFaint}
+                  keyboardAppearance={isDark ? "dark" : "light"}
                   value={inviteTokenInput}
                   onChangeText={setInviteTokenInput}
                   testID="invite-token-input"
@@ -201,7 +202,8 @@ export function GroupInviteScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder="Interests (comma separated)"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={colors.textFaint}
+                  keyboardAppearance={isDark ? "dark" : "light"}
                   value={interestsText}
                   onChangeText={setInterestsText}
                   testID="preferences-interests-input"
@@ -209,7 +211,8 @@ export function GroupInviteScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder="Your max budget (optional)"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={colors.textFaint}
+                  keyboardAppearance={isDark ? "dark" : "light"}
                   keyboardType="numeric"
                   value={budgetMaxText}
                   onChangeText={setBudgetMaxText}
@@ -252,11 +255,13 @@ export function GroupInviteScreen(): React.JSX.Element {
           }
           renderItem={({ item }) => (
             <View style={styles.memberRow} testID={`member-${item.user_id}`}>
-              <Ionicons
-                name={item.role === "organiser" ? "star" : "person-outline"}
-                size={18}
-                color={colors.primary}
-              />
+              <View style={styles.memberIcon}>
+                <Ionicons
+                  name={item.role === "organiser" ? "star" : "person-outline"}
+                  size={16}
+                  color={colors.text}
+                />
+              </View>
               <Text style={styles.memberText}>{item.display_name ?? "Traveller"}</Text>
               <Text style={styles.memberStatus}>{item.invite_status}</Text>
             </View>
@@ -264,56 +269,71 @@ export function GroupInviteScreen(): React.JSX.Element {
         />
       )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error },
-  successText: { ...typography.caption, color: colors.success },
-  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
-  section: { gap: spacing.sm },
-  card: { gap: spacing.sm, marginTop: spacing.sm },
-  cardTitle: { ...typography.subtitle, color: colors.text },
-  cardHint: { ...typography.caption, color: colors.textMuted },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  inviteToken: {
-    ...typography.caption,
-    color: colors.primary,
-    backgroundColor: colors.surface,
-    padding: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  conflictRow: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-    gap: 2,
-  },
-  conflictDescription: { ...typography.body, color: colors.text },
-  conflictResolution: { ...typography.caption, color: colors.textMuted },
-  membersHeading: { ...typography.subtitle, color: colors.text, marginTop: spacing.md },
-  memberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  memberText: { ...typography.body, color: colors.text, flex: 1 },
-  memberStatus: { ...typography.caption, color: colors.textMuted, textTransform: "capitalize" },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
+    errorText: { ...typography.body, color: colors.error },
+    successText: { ...typography.caption, color: colors.success },
+    list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
+    section: { gap: spacing.sm },
+    card: { gap: spacing.sm, marginTop: spacing.sm },
+    cardTitle: { ...typography.subtitle, color: colors.text },
+    cardHint: { ...typography.caption, color: colors.textMuted },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      ...typography.body,
+    },
+    inviteToken: {
+      ...typography.captionMedium,
+      color: colors.text,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.sm,
+      borderRadius: radius.sm,
+    },
+    conflictRow: {
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      padding: spacing.sm,
+      gap: 2,
+    },
+    conflictDescription: { ...typography.body, color: colors.text },
+    conflictResolution: { ...typography.caption, color: colors.textMuted },
+    membersHeading: { ...typography.subtitle, color: colors.text, marginTop: spacing.md },
+    memberRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    memberIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    memberText: { ...typography.body, color: colors.text, flex: 1 },
+    memberStatus: { ...typography.caption, color: colors.textMuted, textTransform: "capitalize" },
+  });

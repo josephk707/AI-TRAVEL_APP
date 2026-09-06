@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,10 +7,10 @@ import { ApiError } from "../api/client";
 import { AppNotification, listNotifications, markNotificationRead } from "../api/notifications";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -33,6 +32,8 @@ const ICONS: Record<AppNotification["type"], React.ComponentProps<typeof Ionicon
  * / §24) — this screen is real user-scoped data, never a demo feed. */
 export function NotificationsCentreScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   const resolveNotifications = useCallback(async (): Promise<LoadState> => {
@@ -87,83 +88,102 @@ export function NotificationsCentreScreen(): React.JSX.Element {
   );
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
-      <StatusBar style="light" />
-      <ScreenHeader title="Notifications" />
+        <ScreenHeader title="Notifications" />
 
-      {state.status === "loading" && (
-        <View style={styles.centered}>
-          <LoadingView label="Loading your notifications…" />
-        </View>
-      )}
+        {state.status === "loading" && (
+          <View style={styles.centered}>
+            <LoadingView label="Loading your notifications…" />
+          </View>
+        )}
 
-      {state.status === "error" && (
-        <View style={styles.centered} testID="notifications-error">
-          <ErrorState
-            message={state.message}
-            retryLabel="Retry"
-            onRetry={load}
-            testID="notifications-retry-button"
+        {state.status === "error" && (
+          <View style={styles.centered} testID="notifications-error">
+            <ErrorState
+              message={state.message}
+              retryLabel="Retry"
+              onRetry={load}
+              testID="notifications-retry-button"
+            />
+          </View>
+        )}
+
+        {state.status === "success" && state.notifications.length === 0 && (
+          <View style={styles.centered} testID="notifications-empty">
+            <EmptyState icon="notifications-off-outline" title="You're all caught up." />
+          </View>
+        )}
+
+        {state.status === "success" && state.notifications.length > 0 && (
+          <FlatList
+            testID="notifications-list"
+            data={state.notifications}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.list}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => void markRead(item)}
+                style={({ pressed }) => [
+                  styles.row,
+                  !item.read_at && styles.rowUnread,
+                  pressed && styles.rowPressed,
+                ]}
+                testID={`notification-${item.id}`}
+                accessibilityRole="button"
+              >
+                <Ionicons
+                  name={ICONS[item.type]}
+                  size={22}
+                  color={item.read_at ? colors.textMuted : colors.text}
+                />
+                <View style={styles.rowBody}>
+                  <Text style={styles.rowTitle}>{item.title}</Text>
+                  <Text style={styles.rowBodyText}>{item.body}</Text>
+                </View>
+                {!item.read_at && (
+                  <View style={styles.unreadDot} testID={`unread-dot-${item.id}`} />
+                )}
+              </Pressable>
+            )}
           />
-        </View>
-      )}
-
-      {state.status === "success" && state.notifications.length === 0 && (
-        <View style={styles.centered} testID="notifications-empty">
-          <EmptyState icon="notifications-off-outline" title="You're all caught up." />
-        </View>
-      )}
-
-      {state.status === "success" && state.notifications.length > 0 && (
-        <FlatList
-          testID="notifications-list"
-          data={state.notifications}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => void markRead(item)}
-              style={[styles.row, !item.read_at && styles.rowUnread]}
-              testID={`notification-${item.id}`}
-              accessibilityRole="button"
-            >
-              <Ionicons name={ICONS[item.type]} size={22} color={colors.primary} />
-              <View style={styles.rowBody}>
-                <Text style={styles.rowTitle}>{item.title}</Text>
-                <Text style={styles.rowBodyText}>{item.body}</Text>
-              </View>
-              {!item.read_at && <View style={styles.unreadDot} testID={`unread-dot-${item.id}`} />}
-            </Pressable>
-          )}
-        />
-      )}
+        )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  header: { padding: spacing.lg, paddingBottom: spacing.sm },
-  title: { ...typography.title, color: colors.text },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  emptyText: { ...typography.body, color: colors.textMuted },
-  list: { padding: spacing.lg, gap: spacing.sm },
-  row: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  rowUnread: { borderColor: colors.primary },
-  rowBody: { flex: 1, gap: 2 },
-  rowTitle: { ...typography.subtitle, color: colors.text },
-  rowBodyText: { ...typography.body, color: colors.textMuted },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary, marginTop: 6 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    centered: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      gap: spacing.sm,
+    },
+    list: { padding: spacing.lg, gap: spacing.sm },
+    row: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+    },
+    rowUnread: { borderColor: colors.borderStrong },
+    rowPressed: { backgroundColor: colors.surfaceAlt },
+    rowBody: { flex: 1, gap: 2 },
+    rowTitle: { ...typography.subtitle, color: colors.text },
+    rowBodyText: { ...typography.body, color: colors.textMuted },
+    unreadDot: {
+      width: 8,
+      height: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.primary,
+      marginTop: 6,
+    },
+  });

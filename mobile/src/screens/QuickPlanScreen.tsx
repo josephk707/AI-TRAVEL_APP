@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
@@ -8,8 +7,8 @@ import { ApiError } from "../api/client";
 import { createQuickPlan, QuickPlan, saveQuickPlanToCollection } from "../api/quickPlans";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
-import { GradientBackground } from "../components/GradientBackground";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { Screen } from "../components/Screen";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type ResultState =
   | { status: "idle" }
@@ -22,6 +21,9 @@ type ResultState =
  * itinerary; FR-015's own business rule (states plainly when local data
  * is insufficient, never returns a low-quality generic list). */
 export function QuickPlanScreen(): React.JSX.Element {
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const keyboardAppearance = isDark ? "dark" : "light";
   const [timeText, setTimeText] = useState("120");
   const [budgetText, setBudgetText] = useState("");
   const [occasion, setOccasion] = useState("");
@@ -80,17 +82,17 @@ export function QuickPlanScreen(): React.JSX.Element {
   }, [result]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-      <StatusBar style="light" />
       <Text style={styles.title}>Quick plan</Text>
       <Text style={styles.subtitle}>A short local outing, planned in seconds.</Text>
 
-      <Card style={styles.form}>
+      <Card style={styles.form} variant="flat">
         <Text style={styles.label}>Time available (minutes)</Text>
         <TextInput
           style={styles.input}
           keyboardType="numeric"
+          keyboardAppearance={keyboardAppearance}
           value={timeText}
           onChangeText={setTimeText}
           testID="quick-plan-time-input"
@@ -99,8 +101,9 @@ export function QuickPlanScreen(): React.JSX.Element {
         <TextInput
           style={styles.input}
           placeholder="₹"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textFaint}
           keyboardType="numeric"
+          keyboardAppearance={keyboardAppearance}
           value={budgetText}
           onChangeText={setBudgetText}
           testID="quick-plan-budget-input"
@@ -109,7 +112,8 @@ export function QuickPlanScreen(): React.JSX.Element {
         <TextInput
           style={styles.input}
           placeholder="e.g. casual, date, with friends"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textFaint}
+          keyboardAppearance={keyboardAppearance}
           value={occasion}
           onChangeText={setOccasion}
           testID="quick-plan-occasion-input"
@@ -130,47 +134,56 @@ export function QuickPlanScreen(): React.JSX.Element {
       )}
 
       {result.status === "success" && (
-        <Card style={styles.resultCard} testID="quick-plan-result">
+        <Card style={styles.resultCard} variant="flat" testID="quick-plan-result">
           <Text style={styles.resultSummary}>{result.plan.summary}</Text>
           {result.plan.items.map((item) => (
             <View key={item.poi_id} style={styles.itemRow} testID={`quick-plan-item-${item.poi_id}`}>
-              <Ionicons name="location-outline" size={18} color={colors.primary} />
+              <Ionicons name="location-outline" size={18} color={colors.textMuted} />
               <Text style={styles.itemText}>{item.poi_name}</Text>
             </View>
           ))}
           <Button
             label="Save to a collection"
             onPress={() => void saveToCollection()}
+            variant="secondary"
             testID="save-quick-plan-button"
           />
           {saveResult && <Text style={styles.hintText}>{saveResult}</Text>}
         </Card>
       )}
       </ScrollView>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { padding: spacing.lg, gap: spacing.md },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
-  form: { gap: spacing.sm },
-  label: { ...typography.caption, color: colors.textMuted },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  hintText: { ...typography.caption, color: colors.textMuted },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  resultCard: { gap: spacing.sm },
-  resultSummary: { ...typography.body, color: colors.text },
-  itemRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
-  itemText: { ...typography.body, color: colors.text },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    content: { padding: spacing.lg, gap: spacing.md },
+    title: { ...typography.title, color: colors.text },
+    subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
+    form: { gap: spacing.sm },
+    label: { ...typography.micro, color: colors.textMuted, textTransform: "uppercase" },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      ...typography.body,
+    },
+    hintText: { ...typography.caption, color: colors.textMuted },
+    errorText: { ...typography.body, color: colors.error, textAlign: "center" },
+    resultCard: { gap: spacing.sm },
+    resultSummary: { ...typography.body, color: colors.text },
+    itemRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.xs,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+    },
+    itemText: { ...typography.body, color: colors.text },
+  });

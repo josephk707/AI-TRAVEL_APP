@@ -16,8 +16,7 @@ import uuid
 from app.repositories.base import Repository
 
 _ONBOARDING_PROFILE_COLUMNS = (
-    "onboarding_completed_at, travel_style, pace, budget_bracket, "
-    "travel_companion, trip_motivation"
+    "onboarding_completed_at, travel_style, pace, budget_bracket, travel_companion, trip_motivation"
 )
 
 

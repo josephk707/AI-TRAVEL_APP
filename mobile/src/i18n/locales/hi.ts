@@ -71,6 +71,11 @@ export const hi: DeepPartial<TranslationResources> = {
     loadFailed: "आपकी प्रोफ़ाइल लोड नहीं हो सकी।",
   },
   settings: {
+    appearance: "दिखावट",
+    appearanceSystem: "सिस्टम",
+    appearanceLight: "लाइट",
+    appearanceDark: "डार्क",
+    appearanceHint: "चुनें कि इस डिवाइस पर Yatra AI कैसा दिखे।",
     title: "सेटिंग्स",
     general: "सामान्य",
     language: "भाषा",

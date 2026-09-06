@@ -149,8 +149,7 @@ async def test_translate_rejects_more_than_two_sentences(
         "/v1/translate/text",
         json={
             "text": (
-                "Where is the nearest railway station? How much does this cost? "
-                "Can I pay by card?"
+                "Where is the nearest railway station? How much does this cost? Can I pay by card?"
             ),
             "target_language": "Hindi",
         },

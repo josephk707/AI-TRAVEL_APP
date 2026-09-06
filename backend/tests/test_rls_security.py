@@ -157,9 +157,9 @@ async def test_h1_profile_auto_provisioned_on_user_creation(
     row = await service_conn.fetchrow(
         "select id from public.profiles where id = $1;", uuid.UUID(user_a)
     )
-    assert (
-        row is not None
-    ), "H1 regression: on_auth_user_created trigger did not provision a profiles row"
+    assert row is not None, (
+        "H1 regression: on_auth_user_created trigger did not provision a profiles row"
+    )
 
 
 # ---------------------------------------------------------------------------

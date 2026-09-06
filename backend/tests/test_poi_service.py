@@ -368,9 +368,7 @@ async def test_nearby_degrades_when_geoapify_call_fails(monkeypatch: pytest.Monk
     )
     _patch_geoapify_settings(monkeypatch, api_key="fake-key")
 
-    async def failing_live_search(
-        self, lat, lng, radius_m, category=None, limit=20
-    ):  # noqa: ANN001
+    async def failing_live_search(self, lat, lng, radius_m, category=None, limit=20):  # noqa: ANN001
         raise PlacesProviderError("simulated provider outage")
 
     monkeypatch.setattr(GeoapifyPlacesClient, "search_nearby", failing_live_search)

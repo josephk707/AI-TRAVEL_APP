@@ -1,14 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Card } from "../components/Card";
-import { GradientBackground } from "../components/GradientBackground";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useTranslation, type LanguageCode } from "../i18n";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 /**
  * The real, working Language Settings screen (Language Settings phase):
@@ -23,6 +22,8 @@ import { colors, radius, spacing, typography } from "../theme/tokens";
 export function LanguageSettingsScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const { t, language, languageOptions, setLanguage } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [pending, setPending] = useState<LanguageCode | null>(null);
   const [syncErrorFor, setSyncErrorFor] = useState<LanguageCode | null>(null);
 
@@ -42,8 +43,7 @@ export function LanguageSettingsScreen(): React.JSX.Element {
   };
 
   return (
-    <GradientBackground>
-      <StatusBar style="light" />
+    <Screen>
       <View style={{ paddingTop: insets.top + spacing.sm }}>
         <ScreenHeader title={t("languageSettings.title")} />
       </View>
@@ -80,51 +80,38 @@ export function LanguageSettingsScreen(): React.JSX.Element {
                 {isPending ? (
                   <Ionicons name="ellipsis-horizontal" size={20} color={colors.textMuted} />
                 ) : isActive ? (
-                  <View style={styles.checkBadge}>
-                    <Ionicons name="checkmark" size={16} color={colors.primaryText} />
-                  </View>
-                ) : (
-                  <View style={styles.uncheckedCircle} />
-                )}
+                  <Ionicons name="checkmark" size={20} color={colors.text} />
+                ) : null}
               </Pressable>
             );
           })}
         </Card>
       </ScrollView>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
-  subtitle: { ...typography.body, color: colors.textMuted },
-  listCard: { padding: 0, overflow: "hidden" },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-  },
-  rowDivider: { borderBottomWidth: 1, borderBottomColor: colors.divider },
-  rowPressed: { backgroundColor: colors.surfaceAlt },
-  rowText: { flex: 1, gap: 2 },
-  nativeLabel: { ...typography.subtitle, color: colors.text },
-  englishLabel: { ...typography.caption, color: colors.textMuted },
-  syncError: { ...typography.caption, color: colors.error, marginTop: 2 },
-  checkBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: radius.pill,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  uncheckedCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: colors.borderStrong,
-  },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl,
+      gap: spacing.md,
+    },
+    subtitle: { ...typography.body, color: colors.textMuted },
+    listCard: { padding: 0, overflow: "hidden" },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+    },
+    rowDivider: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+    rowPressed: { backgroundColor: colors.surfaceAlt },
+    rowText: { flex: 1, gap: 2 },
+    nativeLabel: { ...typography.subtitle, color: colors.text },
+    englishLabel: { ...typography.caption, color: colors.textMuted },
+    syncError: { ...typography.caption, color: colors.error, marginTop: 2 },
+  });

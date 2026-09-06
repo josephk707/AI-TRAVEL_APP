@@ -12,7 +12,7 @@ import { SelectableChip } from "../../components/SelectableChip";
 import type { OnboardingStackParamList } from "../../navigation/OnboardingNavigator";
 import { useOnboardingStore } from "../../onboarding/onboardingStore";
 import { useSubmitOnboarding } from "../../onboarding/useSubmitOnboarding";
-import { colors, spacing, typography } from "../../theme/tokens";
+import { spacing, type Theme, typography, useThemedStyles } from "../../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -27,6 +27,7 @@ export function InterestSelectScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<OnboardingStackParamList, "InterestSelect">>();
   const { interestIds, toggleInterest } = useOnboardingStore();
   const { submit, state: submitState, errorMessage: submitError } = useSubmitOnboarding();
+  const styles = useThemedStyles(createStyles);
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
 
   // Resolves the next LoadState without setting state itself, so the
@@ -109,8 +110,9 @@ export function InterestSelectScreen(): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
-  retryButton: { marginTop: spacing.md, alignSelf: "flex-start" },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    chipGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
+    retryButton: { marginTop: spacing.md, alignSelf: "flex-start" },
+  });

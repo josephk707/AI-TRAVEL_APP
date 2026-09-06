@@ -37,15 +37,65 @@ _TRIP_COLUMNS = (
     "generation_status, created_at, updated_at"
 )
 
+# AI-first itinerary phase: a stop may carry its own place snapshot
+# (`place_*`, migration 20260906120001) when the model proposed a place that
+# has no `pois` row (or whose coordinates came only from the model). Every
+# reader coalesces the catalog row first and falls back to the snapshot, so
+# downstream consumers (business rules, disruption checks, offline package,
+# the mobile timeline) see one consistent `poi_name`/`poi_lat`/`poi_lng`/
+# `poi_category` shape regardless of where the place came from.
 _ITEM_COLUMNS = (
     "i.id, i.trip_id, i.day_id, i.poi_id, i.sequence_order, i.planned_start, "
     "i.planned_end, i.estimated_duration_min, i.estimated_cost, i.status, "
     "i.source, i.verify_on_arrival, i.weather_flag, i.weather_alternative_suggestion, "
-    "i.notes, p.name as poi_name, "
-    "ST_Y(p.location::geometry) as poi_lat, ST_X(p.location::geometry) as poi_lng, "
-    "p.category as poi_category, p.opening_hours as poi_opening_hours, "
+    "i.notes, i.place_area, i.location_source, "
+    "coalesce(p.name, i.place_name) as poi_name, "
+    "coalesce(ST_Y(p.location::geometry), i.place_lat) as poi_lat, "
+    "coalesce(ST_X(p.location::geometry), i.place_lng) as poi_lng, "
+    "coalesce(p.category, i.place_category) as poi_category, "
+    "p.opening_hours as poi_opening_hours, "
     "p.avg_cost as poi_avg_cost"
 )
+
+_ITEM_INSERT_SQL = """
+    insert into public.itinerary_items
+        (trip_id, day_id, poi_id, sequence_order, planned_start, planned_end,
+         estimated_duration_min, estimated_cost, status, source,
+         verify_on_arrival, weather_flag, weather_alternative_suggestion, notes,
+         place_name, place_area, place_category, place_lat, place_lng, location_source)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+            $15, $16, $17, $18, $19, $20)
+    returning id;
+"""
+
+
+def _item_insert_args(trip_id: uuid.UUID, day_id: uuid.UUID, item: dict[str, Any]) -> list[Any]:
+    """One place that turns an item dict (from generation, modification or
+    the fallback scheduler) into the bound argument list for
+    `_ITEM_INSERT_SQL` — so both insert paths persist exactly the same
+    columns and can never drift apart."""
+    return [
+        trip_id,
+        day_id,
+        uuid.UUID(str(item["poi_id"])) if item.get("poi_id") else None,
+        item.get("sequence_order", 0),
+        _parse_time(item.get("planned_start")),
+        _parse_time(item.get("planned_end")),
+        item.get("estimated_duration_min"),
+        item.get("estimated_cost"),
+        item.get("status", "planned"),
+        item.get("source", "ai"),
+        item.get("verify_on_arrival", False),
+        item.get("weather_flag", False),
+        item.get("weather_alternative_suggestion"),
+        item.get("notes"),
+        item.get("place_name") or item.get("poi_name"),
+        item.get("place_area"),
+        item.get("place_category") or item.get("poi_category"),
+        item.get("place_lat") if item.get("place_lat") is not None else item.get("poi_lat"),
+        item.get("place_lng") if item.get("place_lng") is not None else item.get("poi_lng"),
+        item.get("location_source") or ("poi" if item.get("poi_id") else "unresolved"),
+    ]
 
 
 class TripsRepository(Repository):
@@ -256,29 +306,7 @@ class TripsRepository(Repository):
                 )
                 day_id = day_row["id"]
                 for item in day["items"]:
-                    await conn.execute(
-                        """
-                        insert into public.itinerary_items
-                            (trip_id, day_id, poi_id, sequence_order, planned_start, planned_end,
-                             estimated_duration_min, estimated_cost, status, source,
-                             verify_on_arrival, weather_flag, weather_alternative_suggestion, notes)
-                        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14);
-                        """,
-                        tid,
-                        day_id,
-                        uuid.UUID(item["poi_id"]) if item.get("poi_id") else None,
-                        item["sequence_order"],
-                        _parse_time(item.get("planned_start")),
-                        _parse_time(item.get("planned_end")),
-                        item.get("estimated_duration_min"),
-                        item.get("estimated_cost"),
-                        item.get("status", "planned"),
-                        item.get("source", "ai"),
-                        item.get("verify_on_arrival", False),
-                        item.get("weather_flag", False),
-                        item.get("weather_alternative_suggestion"),
-                        item.get("notes"),
-                    )
+                    await conn.execute(_ITEM_INSERT_SQL, *_item_insert_args(tid, day_id, item))
 
     async def get_or_create_day(self, trip_id: str, day_number: int) -> str:
         tid = uuid.UUID(trip_id)
@@ -303,32 +331,28 @@ class TripsRepository(Repository):
         segment changes, rest of plan preserved")."""
         day_id = await self.get_or_create_day(trip_id, day_number)
         new_id = await self.fetchval(
-            """
-            insert into public.itinerary_items
-                (trip_id, day_id, poi_id, sequence_order, planned_start, planned_end,
-                 estimated_duration_min, estimated_cost, status, source,
-                 verify_on_arrival, weather_flag, weather_alternative_suggestion, notes)
-            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-            returning id;
-            """,
-            uuid.UUID(trip_id),
-            uuid.UUID(day_id),
-            uuid.UUID(fields["poi_id"]) if fields.get("poi_id") else None,
-            fields.get("sequence_order", 0),
-            _parse_time(fields.get("planned_start")),
-            _parse_time(fields.get("planned_end")),
-            fields.get("estimated_duration_min"),
-            fields.get("estimated_cost"),
-            fields.get("status", "planned"),
-            fields.get("source", "ai"),
-            fields.get("verify_on_arrival", False),
-            fields.get("weather_flag", False),
-            fields.get("weather_alternative_suggestion"),
-            fields.get("notes"),
+            _ITEM_INSERT_SQL, *_item_insert_args(uuid.UUID(trip_id), uuid.UUID(day_id), fields)
         )
         row = await self.get_item(str(new_id), trip_id)
         assert row is not None
         return row
+
+    async def move_item_to_day(
+        self, item_id: str, trip_id: str, day_number: int
+    ) -> dict[str, Any] | None:
+        """F5: a conversational change may move a stop to another day
+        ("do the fort on day 2 instead"). Only `day_id` changes — every
+        other field of the item is untouched, so the scoped-diff guarantee
+        holds. The target day is created if the plan didn't have it yet."""
+        day_id = await self.get_or_create_day(trip_id, day_number)
+        await self.fetchval(
+            "update public.itinerary_items set day_id = $3, updated_at = now() "
+            "where id = $1 and trip_id = $2 returning id;",
+            uuid.UUID(item_id),
+            uuid.UUID(trip_id),
+            uuid.UUID(day_id),
+        )
+        return await self.get_item(item_id, trip_id)
 
     async def get_item(self, item_id: str, trip_id: str) -> dict[str, Any] | None:
         row = await self.fetchrow(

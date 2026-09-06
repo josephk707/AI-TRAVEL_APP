@@ -84,6 +84,11 @@ export const en = {
     loadFailed: "Couldn't load your profile.",
   },
   settings: {
+    appearance: "Appearance",
+    appearanceSystem: "System",
+    appearanceLight: "Light",
+    appearanceDark: "Dark",
+    appearanceHint: "Choose how Yatra AI looks on this device.",
     title: "Settings",
     general: "General",
     language: "Language",

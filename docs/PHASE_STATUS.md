@@ -2078,3 +2078,84 @@ None. No phase was started and none should be without explicit authorization.
 ## STOP
 
 The existing Gemini integration is certified working end-to-end against the real paid API: the key is loaded only from the backend environment and never leaves it, and conversational itinerary modification genuinely reaches Gemini, applies validated scoped diffs, persists them, and returns them in the exact shape the mobile client already consumes. Four pre-existing defects that only became reachable once a real key was configured were found by running the real path, root-caused, fixed, and covered by mutation-verified regression tests, taking the full live suite from 4 failures to 367 passing. One genuine unrelated defect (the personalization jsonb double-encoding) was found, documented with evidence, and deliberately left unfixed pending authorization rather than silently expanding scope.
+
+---
+
+# Minimal Monochrome Theme + Light/Dark Appearance + Responsive Layout (2026-09-06)
+
+**Not a new product phase.** No backend, database, API or AI change. The mobile client's visual layer was replaced end-to-end per the owner's instruction: a minimal, professional theme using whites, blacks and greys only, with full light-mode and dark-mode support and a responsive layout for phones, tablets and the browser.
+
+**Status: COMPLETE**
+
+## Objective
+
+Replace the violet/indigo gradient "dark only" UI with a strictly greyscale design system; support System / Light / Dark appearance with a persisted user preference; make every screen responsive across device sizes; verify by running the real backend and the real web client.
+
+## Requirements Implemented
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | Strictly greyscale palette — whites, blacks, greys only, no hue anywhere (semantic tokens included) | COMPLETE |
+| 2 | Light mode (white page, black accent) and dark mode (black page, white accent) | COMPLETE |
+| 3 | Appearance preference: System / Light / Dark, persisted locally, applied instantly | COMPLETE |
+| 4 | Every screen (30) and every shared component (22) converted to the runtime theme; no static single-scheme styles remain | COMPLETE |
+| 5 | Gradients, glows and decorative shadows removed; flat surfaces with 1px borders | COMPLETE |
+| 6 | Responsive layout: centred max-width content column on tablets/desktop, responsive grid columns on list screens, theme-aware maps and keyboards | COMPLETE |
+| 7 | Backend and web client run locally and verified in a real browser in both schemes | COMPLETE |
+
+## Design System (mobile/src/theme/)
+
+- `tokens.ts` — `lightColors` / `darkColors` (`ThemeColors`), `spacing`, tightened `radius`, `typography`, per-scheme `shadow`, prebuilt `themes.light` / `themes.dark`. Every literal in the palette is greyscale (verified programmatically: no hex with unequal RGB channels; the only `rgba` values are black overlays). Semantic tokens (`success` / `warning` / `error` / `gold` / `info`) are greys — status is conveyed by icon and label, the token only sets emphasis.
+- `ThemeContext.tsx` — `ThemeProvider` (preference persisted through the existing `expo-secure-store` adapter under `yatra_theme_mode`; falls back to following the OS on a storage error and logs it), `useTheme()` (safe without a provider — isolated component tests and the root error fallback never throw), `useThemedStyles(factory)` (memoized per-scheme `StyleSheet` factory), `ThemedStatusBar` (single status-bar owner in `App.tsx`).
+- `responsive.ts` — `useResponsive()` / `computeResponsive()`: Material window-size classes (compact < 600 ≤ medium < 1024 ≤ expanded), page gutter, content-column width, `columnsFor()` / `itemWidthFor()` grid helpers.
+- `index.ts` — the barrel every screen imports from. The old static `colors` / `gradients` / `shadow` exports were deliberately removed so the type checker flags any call site that would otherwise silently stay single-scheme (it flagged 65 at the start; all were converted).
+- Documented in `docs/MOBILE_ARCHITECTURE.md` §10b.
+
+## Files Created
+
+`mobile/src/theme/ThemeContext.tsx`, `mobile/src/theme/responsive.ts`, `mobile/src/theme/index.ts`, `mobile/src/components/Screen.tsx` (flat page backdrop with a centred max-width column; replaces the deleted `GradientBackground.tsx`), `mobile/src/theme/__tests__/ThemeContext.test.tsx`, `mobile/src/theme/__tests__/responsive.test.tsx`, `mobile/src/screens/__tests__/SettingsScreen.appearance.test.tsx`.
+
+## Files Modified
+
+- Theme/app wiring: `mobile/src/theme/tokens.ts`, `mobile/App.tsx` (ThemeProvider + ThemedStatusBar), `mobile/src/navigation/RootNavigator.tsx` (theme-derived `NavigationContainer` theme, no white/dark flash between screens), `mobile/app.config.js` (`userInterfaceStyle: "automatic"`, neutral adaptive-icon background), `mobile/package.json` / `package-lock.json` (removed `expo-linear-gradient`), `mobile/jest.setup.js` (removed its mock).
+- All 21 remaining shared components in `mobile/src/components/` (Button, Card, ScreenHeader, IconBadge — `gradient` variant renamed `inverse` —, EmptyState, ErrorState, LoadingView, BottomNavBar, OnboardingScreenLayout, ErrorBoundary, ChatBubble, ConfidenceBadge, ItineraryItemCard, PoiCard, TripCard, WeatherCard, SelectableCard, SelectableChip, ProgressDots; `PlatformMap*.tsx` and `MapErrorBoundary.tsx` had no colour usage and were left unchanged).
+- All 30 screens in `mobile/src/screens/` (incl. the 5 onboarding screens). `SettingsScreen` gained the Appearance section. `HomeScreen`, `TripsListScreen`, `ExploreScreen` gained responsive grid columns. `ExploreScreen` / `PoiDetailScreen` maps follow the theme (`userInterfaceStyle`). Text inputs got theme-aware placeholders and `keyboardAppearance`.
+- `mobile/src/i18n/locales/{en,hi,kn,ml,ta,te}.ts` — `settings.appearance*` strings in all six languages.
+- `docs/MOBILE_ARCHITECTURE.md` (§10b), this file.
+- Every `testID`, string, API call, hook, effect and navigation path was preserved; the conversion was presentation-only. The 30-screen conversion was split across five parallel agents working from one written brief, and each agent's output was re-verified against the full project `tsc` / `eslint` / `jest` afterwards, not taken on trust.
+
+## Database Changes — none. ## API Changes — none. ## External Integrations — none added; `expo-linear-gradient` removed.
+
+## UI Changes
+
+- Palette: white page / black accent (light), black page / white accent (dark); greys for everything else.
+- Buttons: solid accent (primary), outlined (secondary), text (ghost), `radius.md`. Cards/rows/tiles: `surface` + 1px `border`, `radius.lg`. Chips: inverted when selected. Bottom nav: hairline top border, accent-filled centre action. Section labels: uppercase micro type.
+- Settings → Appearance: System / Light / Dark segmented control (`settings-appearance-{system,light,dark}` testIDs).
+- Responsive: content centred in a 720dp column on tablets/desktop; Home actions, Trips and Explore results flow into 2–3 columns when there is room; phones keep single-column full-width layouts.
+
+## Tests Executed (all actually run, from `mobile/`)
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | 0 errors |
+| `npx expo lint` | 0 warnings / errors |
+| `npx jest` | **36 suites, 202 tests, all passing** (was 33 / 187 before this work; +15 new tests for ThemeContext, responsive helpers and the Appearance control) |
+| Forbidden-pattern sweep (`#hex`, `rgba(`, `LinearGradient`, `GradientBackground`, `expo-status-bar`, `theme/tokens`, `shadow.glow` across `src/`) | only the intentional `expo-status-bar` import inside `ThemeContext.tsx` |
+| Greyscale audit of `tokens.ts` | every hex literal has equal R/G/B channels; only black `rgba` overlays |
+| Backend `GET /healthz`, `GET /readyz` | `ok` / `ready` (config, database, schema all `ok`) |
+| Web client in Chrome at 1440×900 | Home renders in dark (OS scheme), 2-column action grid in a centred column; Settings → Appearance switches Light → Dark live; preference persists across reload; no console errors |
+| Web client at 400×860 (phone width) | single-column full-width layout |
+
+## Known Limitations
+
+- Native iOS/Android builds were not launched this session (no simulator/device attached); the same code paths were exercised through react-native-web. `userInterfaceStyle: "automatic"` requires a fresh native build to take effect on device.
+- App icon / splash image assets are unchanged PNGs (only the adaptive-icon background colour moved to white).
+- `orientation` stays `portrait` (unchanged product decision); the responsive column and grid still apply to tablets in portrait and to the browser.
+
+## Unresolved Issues — none.
+
+## Environment Variables Required — unchanged (`mobile/.env`, `backend/.env` per `docs/LOCAL_RUN_GUIDE.md`).
+
+## Next Phase Dependencies — none; awaiting explicit authorization before any further phase.
+
+## STOP

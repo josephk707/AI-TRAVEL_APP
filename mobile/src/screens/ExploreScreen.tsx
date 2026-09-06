@@ -11,7 +11,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Poi, PoiCategory } from "../api/pois";
@@ -20,15 +19,23 @@ import { fetchNearbyPois, searchPois } from "../api/pois";
 import { BottomNavBar } from "../components/BottomNavBar";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
 import { MapErrorBoundary } from "../components/MapErrorBoundary";
 import { MapView, Marker, PROVIDER_GOOGLE } from "../components/PlatformMap";
 import { PoiCard } from "../components/PoiCard";
+import { Screen } from "../components/Screen";
 import { SelectableChip } from "../components/SelectableChip";
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import {
+  radius,
+  spacing,
+  type Theme,
+  typography,
+  useResponsive,
+  useTheme,
+  useThemedStyles,
+} from "../theme";
 
 type LoadState =
   | { status: "idle" }
@@ -60,6 +67,11 @@ export function ExploreScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<RootStackParamList, "Explore">>();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const responsive = useResponsive();
+  const columns = responsive.columnsFor(300, spacing.sm);
+  const itemWidth = responsive.itemWidthFor(columns, spacing.sm, spacing.lg);
   const CATEGORY_FILTERS: { value: PoiCategory; label: string }[] = [
     { value: "heritage", label: t("explore.categoryHeritage") },
     { value: "restaurant", label: t("explore.categoryFood") },
@@ -180,10 +192,8 @@ export function ExploreScreen(): React.JSX.Element {
   const results = loadState.status === "success" ? loadState.pois : [];
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="light" />
-
       <View style={styles.header}>
         <Text style={styles.title}>{t("explore.title")}</Text>
         <View style={styles.searchRow}>
@@ -193,7 +203,8 @@ export function ExploreScreen(): React.JSX.Element {
               testID="explore-search-input"
               style={styles.searchInput}
               placeholder={t("explore.searchPlaceholder")}
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={colors.textFaint}
+              keyboardAppearance={isDark ? "dark" : "light"}
               value={queryText}
               onChangeText={setQueryText}
               onSubmitEditing={handleSubmit}
@@ -202,23 +213,23 @@ export function ExploreScreen(): React.JSX.Element {
           </View>
           <Pressable
             testID="explore-locate-button"
-            style={styles.viewToggle}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
             accessibilityRole="button"
             accessibilityLabel={t("explore.useMyLocation")}
             onPress={() => void locateNearby()}
           >
-            <Ionicons name="locate" size={20} color={colors.primaryText} />
+            <Ionicons name="locate" size={20} color={colors.text} />
           </Pressable>
           <Pressable
             testID="explore-view-toggle"
-            style={styles.viewToggle}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
             accessibilityRole="button"
             onPress={() => setViewMode((mode) => (mode === "list" ? "map" : "list"))}
           >
             <Ionicons
               name={viewMode === "list" ? "map-outline" : "list-outline"}
               size={20}
-              color={colors.primaryText}
+              color={colors.text}
             />
           </Pressable>
         </View>
@@ -285,32 +296,43 @@ export function ExploreScreen(): React.JSX.Element {
 
           {viewMode === "list" ? (
             <FlatList
+              // numColumns cannot change on a mounted list — remount per width class.
+              key={`explore-${columns}`}
               testID="explore-results-list"
               data={results}
               keyExtractor={(item) => item.id}
+              numColumns={columns}
+              columnWrapperStyle={columns > 1 ? styles.gridRow : undefined}
               contentContainerStyle={styles.listContent}
               renderItem={({ item }) => (
-                <PoiCard
-                  poi={item}
-                  onPress={() => openDetail(item.id)}
-                  testID={`poi-card-${item.id}`}
-                />
+                <View style={columns > 1 ? { width: itemWidth } : styles.fullWidth}>
+                  <PoiCard
+                    poi={item}
+                    onPress={() => openDetail(item.id)}
+                    testID={`poi-card-${item.id}`}
+                  />
+                </View>
               )}
             />
           ) : (
             <MapErrorBoundary
               fallback={
                 <FlatList
+                  key={`explore-fallback-${columns}`}
                   testID="explore-results-list"
                   data={results}
                   keyExtractor={(item) => item.id}
+                  numColumns={columns}
+                  columnWrapperStyle={columns > 1 ? styles.gridRow : undefined}
                   contentContainerStyle={styles.listContent}
                   renderItem={({ item }) => (
-                    <PoiCard
-                      poi={item}
-                      onPress={() => openDetail(item.id)}
-                      testID={`poi-card-${item.id}`}
-                    />
+                    <View style={columns > 1 ? { width: itemWidth } : styles.fullWidth}>
+                      <PoiCard
+                        poi={item}
+                        onPress={() => openDetail(item.id)}
+                        testID={`poi-card-${item.id}`}
+                      />
+                    </View>
                   )}
                 />
               }
@@ -319,6 +341,7 @@ export function ExploreScreen(): React.JSX.Element {
                 testID="explore-map"
                 style={styles.map}
                 provider={PROVIDER_GOOGLE}
+                userInterfaceStyle={isDark ? "dark" : "light"}
                 initialRegion={{
                   latitude: results[0]?.location.lat ?? DEFAULT_REGION.latitude,
                   longitude: results[0]?.location.lng ?? DEFAULT_REGION.longitude,
@@ -343,54 +366,63 @@ export function ExploreScreen(): React.JSX.Element {
       )}
       </View>
       <BottomNavBar active="Explore" />
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: spacing.sm },
-  title: { ...typography.title, color: colors.text },
-  searchRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
-  searchInputWrapper: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.sm,
-  },
-  searchInput: { flex: 1, ...typography.body, color: colors.text, paddingVertical: spacing.sm },
-  viewToggle: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filterRow: { gap: spacing.xs, paddingVertical: spacing.xs },
-  centerFill: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xl,
-  },
-  listContent: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xxl },
-  map: { flex: 1 },
-  degradedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.xs,
-    padding: spacing.sm,
-    borderRadius: radius.md,
-    backgroundColor: colors.warningSoft,
-  },
-  degradedText: { ...typography.caption, color: colors.text, flexShrink: 1 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1 },
+    header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: spacing.sm },
+    title: { ...typography.title, color: colors.text },
+    searchRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
+    searchInputWrapper: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: spacing.sm + 2,
+      minHeight: 44,
+    },
+    searchInput: { flex: 1, ...typography.body, color: colors.text, paddingVertical: spacing.sm },
+    iconButton: {
+      width: 44,
+      height: 44,
+      borderRadius: radius.md,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.borderStrong,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    iconButtonPressed: { backgroundColor: colors.surfaceAlt },
+    filterRow: { gap: spacing.xs, paddingVertical: spacing.xs },
+    centerFill: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.xl,
+    },
+    listContent: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xxl },
+    gridRow: { gap: spacing.sm },
+    fullWidth: { width: "100%" },
+    map: { flex: 1 },
+    degradedBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.xs,
+      padding: spacing.sm + 2,
+      borderRadius: radius.md,
+      backgroundColor: colors.warningSoft,
+      borderWidth: 1,
+      borderColor: colors.warning,
+    },
+    degradedText: { ...typography.caption, color: colors.text, flexShrink: 1 },
+  });

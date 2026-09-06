@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 interface Props {
   label: string;
@@ -28,6 +28,8 @@ export function SelectableCard({
   onPress,
   testID,
 }: Props): React.JSX.Element {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -37,12 +39,12 @@ export function SelectableCard({
       style={({ pressed }) => [
         styles.card,
         selected && styles.cardSelected,
-        pressed && styles.cardPressed,
+        pressed && (selected ? styles.cardSelectedPressed : styles.cardPressed),
       ]}
     >
       {icon && (
         <View style={[styles.iconBadge, selected && styles.iconBadgeSelected]}>
-          <Ionicons name={icon} size={20} color={selected ? colors.primaryText : colors.primary} />
+          <Ionicons name={icon} size={20} color={selected ? colors.primaryText : colors.textMuted} />
         </View>
       )}
       <View style={styles.textColumn}>
@@ -56,34 +58,38 @@ export function SelectableCard({
   );
 }
 
-const styles = StyleSheet.create({
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  cardSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  cardPressed: { opacity: 0.85 },
-  iconBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconBadgeSelected: { backgroundColor: colors.primary },
-  textColumn: { flex: 1, gap: 2 },
-  label: { ...typography.subtitle, color: colors.text },
-  labelSelected: { color: colors.text, fontWeight: "700" },
-  description: { ...typography.caption, color: colors.textMuted },
-  check: { marginLeft: spacing.xs },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    card: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      gap: spacing.md,
+    },
+    cardSelected: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primarySoft,
+    },
+    cardPressed: { backgroundColor: colors.surfaceAlt },
+    cardSelectedPressed: { backgroundColor: colors.surfaceHighlight },
+    iconBadge: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    iconBadgeSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+    textColumn: { flex: 1, gap: 2 },
+    label: { ...typography.subtitle, color: colors.textMuted },
+    labelSelected: { color: colors.text, fontWeight: "700" },
+    description: { ...typography.caption, color: colors.textMuted },
+    check: { marginLeft: spacing.xs },
+  });

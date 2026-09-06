@@ -146,9 +146,9 @@ async def test_travel_dna_reflects_a_real_favorited_place(
     )
     assert search.status_code == 200
     pois = search.json()["data"]
-    assert (
-        pois
-    ), "Expected at least one real curated POI to exist for this assertion to be meaningful."
+    assert pois, (
+        "Expected at least one real curated POI to exist for this assertion to be meaningful."
+    )
     poi_id = pois[0]["id"]
 
     fav_response = await client.post(
