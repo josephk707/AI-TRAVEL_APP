@@ -60,13 +60,14 @@ Every endpoint below derives identity **exclusively** from the verified Supabase
 |---|---|---|---|
 | `POST` | `/auth/session/bootstrap` | Bearer | **Idempotent load-or-defensive-create.** The `profiles` row is actually created by the `handle_new_user()` database trigger the instant Supabase Auth creates the `auth.users` row (`DATABASE_SCHEMA.md` §3) — not by this endpoint. This call reads that row; if (and only if, which should not happen in normal operation) the trigger hasn't run yet, it creates the row defensively rather than erroring. Client calls this once right after a session is established, before navigating past sign-in. |
 | `GET` | `/auth/me` | Bearer | Returns the caller's own `profiles` row + `onboarding_completed_at` flag. The Phase 3 proof-of-concept protected endpoint. |
+| `PATCH` | `/auth/me` | Bearer | **UI/Language phase.** Body `{ "preferred_language": "en" \| "hi" \| "te" \| "ml" \| "kn" \| "ta" }`. Persists the caller's UI-language preference to `profiles.preferred_language`; an unsupported code is rejected `400` before any write. Returns the updated profile. Deliberately scoped to this one field — not a general profile-edit endpoint. |
 | `POST` | `/auth/logout` | Bearer | Calls Supabase Auth's admin sign-out for the caller's session, revoking their **refresh token** server-side (defense-in-depth beyond the client clearing its local session). Honest security property, stated plainly rather than overclaimed: this does not instantly invalidate the **access token** already issued — JWTs are stateless and remain cryptographically valid until their own (short, ~1h) expiry regardless of logout, exactly like any standard JWT-based system. What logout guarantees is that no *new* access token can be minted from that refresh token afterward. |
 | `POST` | `/auth/account/delete-request` | Bearer | **Deferred, not implemented this phase.** Documented here for completeness (matches `DEPLOYMENT_PLAN.md` §6's workflow) but is a data-lifecycle feature (audit logging, a multi-step deletion workflow) distinct from core identity — out of Phase 3's scope, which is authentication/authorization/identity only. |
 
 **Response — `GET /auth/me`**
 ```json
 { "data": { "id": "uuid", "display_name": "Meera", "role": "traveller",
-  "onboarding_completed_at": null, "home_region": "Tamil Nadu" } }
+  "onboarding_completed_at": null, "home_region": "Tamil Nadu", "preferred_language": "en" } }
 ```
 
 **Response — unauthenticated/invalid token (any endpoint above) — `401`**
@@ -82,14 +83,37 @@ Every endpoint below derives identity **exclusively** from the verified Supabase
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `GET` | `/onboarding/interests` | Bearer | List curated interest tags to render the selection UI |
-| `POST` | `/onboarding/responses` | Bearer | Submit interests + travel_style + budget_bracket + pace |
+| `POST` | `/onboarding/responses` | Bearer | Submit interests + travel_style + budget_bracket + pace + travel_companion + trip_motivation |
 | `GET` | `/onboarding/status` | Bearer | Whether onboarding is complete (drives skip-logic) |
 
 **Request — `POST /onboarding/responses`**
 ```json
-{ "interest_ids": [1, 4, 7], "travel_style": "balanced", "budget_bracket": "mid", "pace": "relaxed" }
+{ "interest_ids": [1, 4, 7], "travel_style": "balanced", "budget_bracket": "mid", "pace": "relaxed",
+  "travel_companion": "solo", "trip_motivation": "Trying local street food and slow mornings" }
 ```
 Save failure never blocks the user (FR-003 exception flow) — the endpoint returns `202 Accepted` with `meta.saved: false` and retries server-side in the background rather than surfacing a hard error to the client.
+
+**Final Personalization phase:** `travel_companion` (`solo`\|`family`\|`friends`\|`couple`\|`flexible`) and `trip_motivation` (free text, ≤500 chars) are the 5th and 6th onboarding questions, both optional like every other onboarding field — added to keep the wizard within the ≤6-screen usability target while giving the Personalization Engine (§3b) genuinely richer real signal than travel_style/pace/budget_bracket alone.
+
+---
+
+## 3b. Personalization
+*Backend: Final Personalization phase · DB: `personalization_profile` (reused, no new table) · AI: same `LLMGateway`/Gemini as every other AI pipeline*
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/personalization/travel-dna` | Bearer | Computes (and persists) the caller's own "Travel DNA" — a short personality label + narrative summary, built only from their real onboarding answers and real in-app activity |
+
+**Response — `GET /personalization/travel-dna`**
+```json
+{ "data": { "travel_style": "planned", "pace": "balanced", "budget_bracket": "mid",
+  "travel_companion": "solo", "trip_motivation": "Trying local street food",
+  "interests": ["Heritage & History", "Food & Cuisine"], "favorite_categories": { "heritage": 3 },
+  "trips_planned": 2, "places_saved": 3, "travel_personality": "Cultural Explorer",
+  "summary": "You enjoy heritage sites and local food, travelling at a balanced pace.",
+  "generated_by": "ai", "updated_at": "2026-08-28T00:00:00Z" } }
+```
+`generated_by` is `"ai"` when a real Gemini call produced the summary, or `"template"` when Gemini is unconfigured/unavailable — in the template case the summary is still built only from the same real facts (never fabricated), per CLAUDE.md §3/§8's grounding requirement. A brand-new user with no onboarding answers and no activity gets an honest "New Explorer" placeholder, not an invented personality. This same computed summary (never a second AI call) is injected into `POST /trips/{id}/itinerary/generate`'s existing Gemini prompt (`AI_ARCHITECTURE.md` §2) when present, so itinerary generation degrades to its pre-existing (non-personalized) behavior for any user who has never opened this endpoint.
 
 ---
 
@@ -147,9 +171,10 @@ Save failure never blocks the user (FR-003 exception flow) — the endpoint retu
 
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/pois/search` | Bearer | Query by text/category/bounding box; backend-cached proxy over Google Places, never exposes the raw Maps API key to the client |
+| `GET` | `/pois/search` | Bearer | Query by text/category/bounding box; backend-cached proxy over Google Places (free-text `query`), never exposes the raw Maps API key to the client |
 | `GET` | `/pois/{poi_id}` | Bearer | POI detail |
-| `GET` | `/pois/nearby` | Bearer | `?lat&lng&radius_m&category` — `ST_DWithin` query against `pois.location` |
+| `GET` | `/pois/nearby` | Bearer | `?lat&lng&radius_m&category` — `ST_DWithin` query against `pois.location`, live-augmented via Geoapify Places when sparse (Maps Integration phase, `docs/PHASE_STATUS.md`) — same `meta.degraded_mode`/`message` contract as `/pois/search` |
+| `GET` | `/weather` | Bearer | `?lat&lng` — real, live Open-Meteo current conditions + 5-day forecast for a point (Maps Integration phase). No API key required (Open-Meteo's non-commercial tier). **Separate** from the internal, `WEATHER_API_KEY`-gated F3 adverse-weather itinerary flag — this is new, user-facing destination weather, not itinerary business logic. |
 
 Map-tile load failures are a client-side concern (degrade to list view, §24) — no server endpoint needed for that fallback.
 
@@ -276,11 +301,18 @@ Map-tile offline caching is explicitly out of scope (documented decision, `app/s
 | `POST` | `/translate/text` | Bearer | `{ "text": "...", "target_language": "Hindi" }` — arbitrary-phrase translation, real Gemini call |
 | `POST` | `/translate/speech` | Bearer | `multipart/form-data`: `audio` file + `target_language` — batch transcribe + translate |
 
+**Final Personalization phase:** `POST /translate/text`'s `text` field is now capped to **2 sentences** (real sentence-boundary count — `.`/`!`/`?` followed by whitespace-or-end — not a character-count proxy), matching the mobile Translate screen's own live counter/limit so a request is never rejected for a reason the UI didn't already show. A request over the limit is rejected `400 VALIDATION_ERROR` with a human-readable count in the message, same envelope as every other validation failure.
+
 **Response — `POST /translate/text`**
 ```json
 { "data": { "original_text": "Where is the nearest railway station?", "target_language": "Hindi",
   "translated_text": "निकटतम रेलवे स्टेशन कहाँ है?", "transliteration": "Nikatatam railway station kahaan hai?",
   "note": null, "recognized_language": true } }
+```
+**Response (more than 2 sentences) — `400`**
+```json
+{ "error": { "code": "VALIDATION_ERROR", "message": "Request input failed validation.",
+  "details": { "errors": [ { "msg": "Value error, This prototype translates at most 2 sentences at a time (found 3)." } ] } } }
 ```
 **Response — `POST /translate/speech`**
 ```json

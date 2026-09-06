@@ -21,6 +21,23 @@ jest.mock("../../api/auth", () => ({
   fetchMyProfile: jest.fn(),
 }));
 
+// Isolated component test: renders with the real English strings (this
+// app's default language) without needing a full LanguageProvider tree —
+// LanguageContext itself is exercised separately in its own tests.
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  // Stable references across renders (mirrors the real LanguageContext's
+  // useCallback/useMemo) — an inline object literal recreated on every
+  // useTranslation() call would give HomeScreen's loadProfile useCallback
+  // a new dependency every render, looping its effect forever.
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  const syncFromServerProfile = jest.fn();
+  const value = { t, syncFromServerProfile };
+  return { useTranslation: () => value };
+});
+
 const mockUseAuth = useAuth as jest.Mock;
 const mockBootstrapSession = bootstrapSession as jest.Mock;
 const mockFetchMyProfile = fetchMyProfile as jest.Mock;
@@ -33,7 +50,10 @@ const PROFILE: ProfileData = {
   travel_style: null,
   pace: null,
   budget_bracket: null,
+  travel_companion: null,
+  trip_motivation: null,
   role: "traveller",
+  preferred_language: "en",
   onboarding_completed_at: null,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
@@ -62,7 +82,6 @@ describe("HomeScreen", () => {
     await waitFor(() => expect(screen.getByTestId("profile-success")).toBeTruthy());
     expect(mockBootstrapSession).toHaveBeenCalled();
     expect(mockFetchMyProfile).toHaveBeenCalled();
-    expect(screen.getByText(`User ID: ${PROFILE.id}`)).toBeTruthy();
     expect(screen.getByText("Role: traveller")).toBeTruthy();
   });
 
@@ -90,28 +109,6 @@ describe("HomeScreen", () => {
     });
 
     await waitFor(() => expect(screen.getByTestId("profile-success")).toBeTruthy());
-  });
-
-  it("calls signOut() when the sign-out button is pressed", async () => {
-    mockBootstrapSession.mockResolvedValue({ profile: PROFILE, created: false });
-    mockFetchMyProfile.mockResolvedValue(PROFILE);
-    const signOut = jest.fn();
-    mockUseAuth.mockReturnValue({
-      state: "AUTHENTICATED",
-      session: null,
-      user: { id: PROFILE.id, email: "traveller@example.com" },
-      errorMessage: null,
-      signInWithGoogle: jest.fn(),
-      signOut,
-      clearError: jest.fn(),
-    });
-
-    await render(<HomeScreen />);
-    await waitFor(() => expect(screen.getByTestId("profile-success")).toBeTruthy());
-
-    fireEvent.press(screen.getByTestId("sign-out-button"));
-
-    expect(signOut).toHaveBeenCalled();
   });
 
   it("navigates to Explore when the explore-places card is pressed", async () => {

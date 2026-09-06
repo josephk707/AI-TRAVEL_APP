@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, Switch, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import { BudgetSummary, Expense, ExpenseCategory, fetchBudgetSummary, logExpense } from "../api/budget";
@@ -11,7 +12,10 @@ import { listTripMembers, TripMember } from "../api/group";
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -29,6 +33,7 @@ export function BudgetViewScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "BudgetView">>();
   const { tripId } = route.params;
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [category, setCategory] = useState<ExpenseCategory>("food");
@@ -101,11 +106,10 @@ export function BudgetViewScreen(): React.JSX.Element {
   }, [tripId, category, amountText, load, splitEqually, members, user]);
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Trip budget</Text>
-      </View>
+    <GradientBackground>
+      <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
+      <StatusBar style="light" />
+      <ScreenHeader title="Trip budget" />
 
       {state.status === "loading" && (
         <View style={styles.centered}>
@@ -115,8 +119,12 @@ export function BudgetViewScreen(): React.JSX.Element {
 
       {state.status === "error" && (
         <View style={styles.centered} testID="budget-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="budget-retry-button" />
+          <ErrorState
+            message={state.message}
+            retryLabel="Retry"
+            onRetry={load}
+            testID="budget-retry-button"
+          />
         </View>
       )}
 
@@ -220,12 +228,13 @@ export function BudgetViewScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   header: { padding: spacing.lg, paddingBottom: spacing.sm },
   title: { ...typography.title, color: colors.text },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
@@ -239,7 +248,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.xs,
     alignItems: "flex-start",
-    backgroundColor: "#FDF3D8",
+    backgroundColor: colors.warningSoft,
     borderRadius: radius.sm,
     padding: spacing.sm,
     marginTop: spacing.sm,
@@ -271,7 +280,7 @@ const styles = StyleSheet.create({
   amountInput: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     padding: spacing.sm + 2,
     color: colors.text,

@@ -15,7 +15,10 @@ import uuid
 
 from app.repositories.base import Repository
 
-_ONBOARDING_PROFILE_COLUMNS = "onboarding_completed_at, travel_style, pace, budget_bracket"
+_ONBOARDING_PROFILE_COLUMNS = (
+    "onboarding_completed_at, travel_style, pace, budget_bracket, "
+    "travel_companion, trip_motivation"
+)
 
 
 class OnboardingRepository(Repository):
@@ -42,6 +45,8 @@ class OnboardingRepository(Repository):
         travel_style: str | None,
         pace: str | None,
         budget_bracket: str | None,
+        travel_companion: str | None = None,
+        trip_motivation: str | None = None,
     ) -> dict[str, object]:
         """Atomically updates `profiles` and replaces this profile's
         `source = 'onboarding'` rows in `profile_interests` with the given
@@ -64,6 +69,8 @@ class OnboardingRepository(Repository):
                 set travel_style = coalesce($2, travel_style),
                     pace = coalesce($3, pace),
                     budget_bracket = coalesce($4, budget_bracket),
+                    travel_companion = coalesce($5, travel_companion),
+                    trip_motivation = coalesce($6, trip_motivation),
                     onboarding_completed_at = now(),
                     updated_at = now()
                 where id = $1;
@@ -72,6 +79,8 @@ class OnboardingRepository(Repository):
                 travel_style,
                 pace,
                 budget_bracket,
+                travel_companion,
+                trip_motivation,
             )
             await conn.execute(
                 "delete from public.profile_interests "

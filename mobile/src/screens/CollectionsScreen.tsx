@@ -14,6 +14,8 @@ import {
   listFavorites,
 } from "../api/collections";
 import { Button } from "../components/Button";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
@@ -65,8 +67,9 @@ export function CollectionsScreen(): React.JSX.Element {
   }, [newCollectionName, load]);
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={styles.flex}>
+      <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Saved places</Text>
       </View>
@@ -79,8 +82,7 @@ export function CollectionsScreen(): React.JSX.Element {
 
       {state.status === "error" && (
         <View style={styles.centered} testID="collections-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="collections-retry-button" />
+          <ErrorState message={state.message} retryLabel="Retry" onRetry={load} testID="collections-retry-button" />
         </View>
       )}
 
@@ -140,12 +142,13 @@ export function CollectionsScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   header: { padding: spacing.lg, paddingBottom: spacing.sm },
   title: { ...typography.title, color: colors.text },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },

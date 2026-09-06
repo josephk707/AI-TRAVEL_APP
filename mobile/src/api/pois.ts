@@ -88,10 +88,15 @@ export interface NearbyPoisParams {
   category?: PoiCategory;
 }
 
+/** Maps Integration phase: `/v1/pois/nearby` now live-augments sparse
+ * results via Geoapify Places (backend/app/services/poi_service.py), so
+ * this carries the same `degraded`/`message` shape `searchPois` already
+ * does — real, cached results are still returned even when live
+ * augmentation is unavailable, never a hard failure. */
 export async function fetchNearbyPois(
   params: NearbyPoisParams,
   signal?: AbortSignal,
-): Promise<Poi[]> {
+): Promise<PoiSearchResult> {
   const query = buildQuery({
     lat: params.lat,
     lng: params.lng,
@@ -99,7 +104,11 @@ export async function fetchNearbyPois(
     category: params.category,
   });
   const envelope = await apiGet<Envelope<Poi[]>>(`/v1/pois/nearby${query}`, signal);
-  return envelope.data;
+  return {
+    pois: envelope.data,
+    degraded: envelope.meta?.degraded_mode ?? false,
+    message: envelope.meta?.message ?? null,
+  };
 }
 
 export async function fetchPoi(poiId: string, signal?: AbortSignal): Promise<Poi> {

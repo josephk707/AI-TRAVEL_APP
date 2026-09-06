@@ -88,6 +88,19 @@ class Settings(BaseSettings):
     # which this being absent should crash the API.
     google_maps_api_key: SecretStr | None = Field(default=None)
 
+    # --- Places, second provider (Maps-only integration phase) ---
+    # Geoapify Places API key, used exclusively by
+    # app/services/geoapify_places_client.py, following the exact same
+    # "server-side only, never sent to the mobile client" rule as
+    # google_maps_api_key above. Geoapify is currently used for
+    # location-based ("nearby") place discovery only — Geoapify's Places
+    # API has no free-text query parameter (that needs Geoapify's
+    # Geocoding API, not yet authorized/configured — see
+    # docs/PHASE_STATUS.md's Maps Integration phase entry for the full
+    # capability audit). When unset, nearby search stays cache/DB-only,
+    # exactly as it already degrades today (CLAUDE.md §9).
+    geoapify_api_key: SecretStr | None = Field(default=None)
+
     # --- Weather (F3 H7 fix — outdoor-activity flagging, AI_ARCHITECTURE.md §2) ---
     # OpenWeatherMap key. SecretStr: billable, abusable if leaked. When
     # unset, the weather business-rule step is skipped (itinerary items are

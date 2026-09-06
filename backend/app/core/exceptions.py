@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI, Request, status
@@ -106,6 +107,23 @@ def _error_envelope(
     return {"error": {"code": code, "message": message, "details": details or {}}}
 
 
+def _json_safe_pydantic_errors(errors: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """pydantic's `.errors()` embeds the raw exception instance under
+    `ctx.error` for a validator that raises ValueError/AssertionError (e.g.
+    TranslateTextRequest's two-sentence limit) — not JSON serializable by
+    plain `json.dumps`/starlette's JSONResponse. `msg` already carries the
+    human-readable text, so `ctx` is stringified rather than dropped
+    (keeps any other, genuinely serializable context)."""
+    safe: list[dict[str, Any]] = []
+    for error in errors:
+        error = dict(error)
+        ctx = error.get("ctx")
+        if isinstance(ctx, dict):
+            error["ctx"] = {k: str(v) if isinstance(v, Exception) else v for k, v in ctx.items()}
+        safe.append(error)
+    return safe
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
@@ -121,13 +139,17 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         # Malformed input -> 400 per API_SPECIFICATION.md §1, NOT FastAPI's
         # default 422 (422 is reserved here for business-rule violations).
+        # exc.errors() can embed a raw, non-JSON-serializable ValueError in
+        # ctx.error for a field_validator that raises (e.g.
+        # TranslateTextRequest's two-sentence limit) — found as a real bug
+        # by this phase's own live test before it was ever a hypothetical.
         logger.info("validation_error", extra={"path": request.url.path})
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=_error_envelope(
                 "VALIDATION_ERROR",
                 "Request input failed validation.",
-                {"errors": exc.errors()},
+                {"errors": _json_safe_pydantic_errors(exc.errors())},
             ),
         )
 

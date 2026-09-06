@@ -40,6 +40,8 @@ export function useSubmitOnboarding(): {
         travel_style: store.travelStyle,
         pace: store.pace,
         budget_bracket: store.budgetBracket,
+        travel_companion: store.travelCompanion,
+        trip_motivation: store.tripMotivation.trim() || undefined,
       });
       store.reset();
       completeOnboardingLocally();

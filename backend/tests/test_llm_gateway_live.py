@@ -249,9 +249,26 @@ async def test_real_itinerary_generation_produces_a_grounded_persisted_plan(
     all_items = [item for day in data["days"] for item in day["items"]]
     assert len(all_items) > 0
     # The candidate-index guardrail means every scheduled item must be a
-    # REAL candidate POI (Taj Mahal is the only Agra POI seeded) — never a
-    # hallucinated venue.
-    assert all(item["poi_name"] == "Taj Mahal" for item in all_items)
+    # REAL POI that exists in this project's own database — never a
+    # hallucinated venue. Asserted against the LIVE candidate set rather
+    # than a hardcoded name: this previously pinned "Taj Mahal" as the only
+    # seeded Agra POI, which stopped being true once the Phase 8 heritage
+    # expansion seeded more, turning a passing guardrail into a false
+    # failure. The real invariant is membership in the seeded set.
+    # Read the candidate set from the SAME source the pipeline itself uses
+    # (`itinerary_service._get_candidates` -> `PoisRepository.search_text`),
+    # not `/v1/pois/search`, which live-augments from an external provider
+    # and would make this a weaker, noisier check.
+    from app.repositories.pois_repository import PoisRepository
+
+    seeded_names = {
+        poi["name"] for poi in await PoisRepository().search_text("Agra", category=None, limit=15)
+    }
+    assert seeded_names, "no Agra POIs seeded — the guardrail below would be vacuous"
+    assert all(item["poi_name"] in seeded_names for item in all_items), (
+        f"itinerary contains a POI absent from the database: "
+        f"{[i['poi_name'] for i in all_items if i['poi_name'] not in seeded_names]}"
+    )
 
     # Real DB persistence check: fetch it back via a SEPARATE request.
     itinerary_response = await client.get(

@@ -28,7 +28,7 @@ export function BudgetBracketScreen(): React.JSX.Element {
       subtitle="A rough idea helps us suggest the right places — you can change this anytime."
       onSkip={handleSkip}
       primaryLabel="Continue"
-      onPrimaryPress={() => navigation.navigate("OnboardingComplete")}
+      onPrimaryPress={() => navigation.navigate("TravelMotivation")}
       primaryBusy={submitState === "submitting"}
       primaryTestID="budget-continue-button"
     >

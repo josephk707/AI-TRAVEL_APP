@@ -182,6 +182,11 @@ async def test_nearby_finds_the_taj_mahal_near_its_real_coordinates(
 async def test_nearby_far_from_any_seeded_poi_returns_an_empty_list_not_an_error(
     client: AsyncClient, real_session: _RealSession
 ) -> None:
+    """DB cache is empty here, so this now also genuinely exercises the
+    live Geoapify augmentation path (Maps Integration phase) when
+    GEOAPIFY_API_KEY is configured — real open ocean has no real places,
+    so the real live response is legitimately empty too, not just the
+    cache."""
     response = await client.get(
         "/v1/pois/nearby",
         # The middle of the Pacific Ocean — genuinely nowhere near any

@@ -69,14 +69,14 @@ const styles = StyleSheet.create({
   },
   cardSelected: {
     borderColor: colors.primary,
-    backgroundColor: "#EAF5F1",
+    backgroundColor: colors.primarySoft,
   },
   cardPressed: { opacity: 0.85 },
   iconBadge: {
     width: 40,
     height: 40,
     borderRadius: radius.md,
-    backgroundColor: colors.background,
+    backgroundColor: colors.primarySoft,
     alignItems: "center",
     justifyContent: "center",
   },

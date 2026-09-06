@@ -20,6 +20,7 @@ import { askPhotoQuestion, PhotoQaResult } from "../api/heritage";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ConfidenceBadge } from "../components/ConfidenceBadge";
+import { GradientBackground } from "../components/GradientBackground";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -84,11 +85,12 @@ export function PhotoQAScreen(): React.JSX.Element {
   }, [photoUri, question, poiId]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+      <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Ask about a photo</Text>
         <Text style={styles.subtitle}>Near {poiName}</Text>
@@ -102,11 +104,18 @@ export function PhotoQAScreen(): React.JSX.Element {
         )}
 
         <View style={styles.captureRow}>
-          <Button label="Take photo" onPress={() => void capturePhoto()} testID="capture-photo-button" />
+          <Button
+            label="Take photo"
+            onPress={() => void capturePhoto()}
+            testID="capture-photo-button"
+            fullWidth={false}
+          />
           <Button
             label="Choose from library"
             onPress={() => void pickFromLibrary()}
             testID="pick-photo-button"
+            variant="secondary"
+            fullWidth={false}
           />
         </View>
 
@@ -132,6 +141,7 @@ export function PhotoQAScreen(): React.JSX.Element {
             onPress={() => void handleAsk()}
             disabled={!photoUri || !question.trim() || state.status === "loading"}
             testID="ask-photo-question-button"
+            fullWidth={false}
           />
           {state.status === "loading" && (
             <ActivityIndicator size="small" color={colors.primaryText} style={styles.spinner} />
@@ -151,12 +161,13 @@ export function PhotoQAScreen(): React.JSX.Element {
           </Card>
         )}
       </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   container: { padding: spacing.lg, gap: spacing.sm },
   title: { ...typography.title, color: colors.text },
   subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },

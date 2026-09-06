@@ -7,12 +7,16 @@ import { StatusBar } from "expo-status-bar";
 
 import { ApiError } from "../api/client";
 import { fetchNarration, NarrationResult } from "../api/heritage";
-import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ConfidenceBadge } from "../components/ConfidenceBadge";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LoadState =
   | { status: "loading" }
@@ -28,6 +32,8 @@ export function HeritageNarrationScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<RootStackParamList, "HeritageNarration">>();
   const route = useRoute<RouteProp<RootStackParamList, "HeritageNarration">>();
   const { poiId, poiName } = route.params;
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -41,10 +47,10 @@ export function HeritageNarrationScreen(): React.JSX.Element {
       }
       return {
         status: "error",
-        message: err instanceof ApiError ? err.message : "Couldn't load this story.",
+        message: err instanceof ApiError ? err.message : t("heritageNarration.couldntLoad"),
       };
     }
-  }, [poiId]);
+  }, [poiId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,31 +68,28 @@ export function HeritageNarrationScreen(): React.JSX.Element {
   }, [resolveNarration]);
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>{poiName}</Text>
-        <Text style={styles.subtitle}>Heritage story</Text>
+    <GradientBackground>
+      <View style={styles.flex}>
+      <StatusBar style="light" />
+      <View style={{ paddingTop: insets.top + spacing.sm }}>
+        <ScreenHeader title={poiName} subtitle={t("heritageNarration.heritageStory")} />
       </View>
 
       {state.status === "loading" && (
         <View style={styles.centered}>
-          <LoadingView label="Gathering the story…" />
+          <LoadingView label={t("heritageNarration.gatheringStory")} />
         </View>
       )}
 
       {state.status === "not_covered" && (
         <View style={styles.centered} testID="narration-not-covered">
-          <Text style={styles.notCoveredText}>
-            We do not have a verified story for this place yet — we never make one up.
-          </Text>
+          <Text style={styles.notCoveredText}>{t("heritageNarration.notCoveredMessage")}</Text>
         </View>
       )}
 
       {state.status === "error" && (
         <View style={styles.centered} testID="narration-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={retryLoad} testID="narration-retry-button" />
+          <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={retryLoad} testID="narration-retry-button" />
         </View>
       )}
 
@@ -97,7 +100,7 @@ export function HeritageNarrationScreen(): React.JSX.Element {
             <Text style={styles.narrationText}>{state.result.narration}</Text>
           </Card>
           <Text style={styles.sourcesLabel}>
-            Sourced from: {state.result.sources.join(", ")}
+            {t("heritageNarration.sourcedFrom")}: {state.result.sources.join(", ")}
           </Text>
         </ScrollView>
       )}
@@ -108,23 +111,16 @@ export function HeritageNarrationScreen(): React.JSX.Element {
         testID="open-photo-qa-fab"
         accessibilityRole="button"
       >
-        <Text style={styles.photoQaFabText}>📷 Ask about a photo</Text>
+        <Text style={styles.photoQaFabText}>📷 {t("heritageNarration.askAboutPhoto")}</Text>
       </Pressable>
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
-  header: {
-    padding: spacing.lg,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted },
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
   notCoveredText: { ...typography.body, color: colors.textMuted, textAlign: "center" },
   content: { padding: spacing.lg, gap: spacing.md, paddingBottom: spacing.xl * 2 },
   narrationCard: { gap: spacing.sm },

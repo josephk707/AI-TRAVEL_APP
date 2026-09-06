@@ -9,7 +9,7 @@ import { TripCreationScreen } from "../TripCreationScreen";
 const mockReplace = jest.fn();
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
-  useNavigation: () => ({ replace: mockReplace }),
+  useNavigation: () => ({ replace: mockReplace, goBack: jest.fn() }),
 }));
 
 jest.mock("../../api/onboarding", () => ({
@@ -19,6 +19,14 @@ jest.mock("../../api/trips", () => ({
   createTrip: jest.fn(),
   submitTripNotes: jest.fn(),
 }));
+
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  return { useTranslation: () => ({ t }) };
+});
 
 const mockFetchInterests = fetchInterests as jest.Mock;
 const mockCreateTrip = createTrip as jest.Mock;

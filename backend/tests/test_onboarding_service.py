@@ -67,13 +67,23 @@ async def test_submit_responses_allows_an_empty_interest_selection(
     _patch_known_interests(monkeypatch)
 
     async def fake_save(
-        self, profile_id, *, interest_ids, travel_style, pace, budget_bracket
+        self,
+        profile_id,
+        *,
+        interest_ids,
+        travel_style,
+        pace,
+        budget_bracket,
+        travel_companion=None,
+        trip_motivation=None,
     ):  # noqa: ANN001
         return {
             "onboarding_completed_at": "2026-08-25T00:00:00Z",
             "travel_style": travel_style,
             "pace": pace,
             "budget_bracket": budget_bracket,
+            "travel_companion": travel_companion,
+            "trip_motivation": trip_motivation,
         }
 
     async def fake_get_ids(self, profile_id):  # noqa: ANN001
@@ -106,7 +116,15 @@ async def test_submit_responses_on_db_failure_returns_saved_false_without_raisin
     _patch_known_interests(monkeypatch)
 
     async def failing_save(
-        self, profile_id, *, interest_ids, travel_style, pace, budget_bracket
+        self,
+        profile_id,
+        *,
+        interest_ids,
+        travel_style,
+        pace,
+        budget_bracket,
+        travel_companion=None,
+        trip_motivation=None,
     ):  # noqa: ANN001
         raise UpstreamUnavailableError("simulated DB failure")
 
@@ -136,7 +154,15 @@ async def test_retry_save_in_background_swallows_a_second_failure(
     monkeypatch.setattr("app.services.onboarding_service._BACKGROUND_RETRY_DELAY_SECONDS", 0)
 
     async def failing_save(
-        self, profile_id, *, interest_ids, travel_style, pace, budget_bracket
+        self,
+        profile_id,
+        *,
+        interest_ids,
+        travel_style,
+        pace,
+        budget_bracket,
+        travel_companion=None,
+        trip_motivation=None,
     ):  # noqa: ANN001
         raise UpstreamUnavailableError("still failing")
 
@@ -158,7 +184,15 @@ async def test_retry_save_in_background_succeeds_when_the_retry_works(
     calls: list[str] = []
 
     async def working_save(
-        self, profile_id, *, interest_ids, travel_style, pace, budget_bracket
+        self,
+        profile_id,
+        *,
+        interest_ids,
+        travel_style,
+        pace,
+        budget_bracket,
+        travel_companion=None,
+        trip_motivation=None,
     ):  # noqa: ANN001
         calls.append(profile_id)
         return {
@@ -166,6 +200,8 @@ async def test_retry_save_in_background_succeeds_when_the_retry_works(
             "travel_style": travel_style,
             "pace": pace,
             "budget_bracket": budget_bracket,
+            "travel_companion": travel_companion,
+            "trip_motivation": trip_motivation,
         }
 
     monkeypatch.setattr(
@@ -178,3 +214,61 @@ async def test_retry_save_in_background_succeeds_when_the_retry_works(
     )
 
     assert calls == [_USER.id]
+
+
+async def test_submit_responses_persists_companion_and_motivation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Final Personalization phase — the two new onboarding questions
+    round-trip through the same save path as the original four."""
+    _patch_known_interests(monkeypatch)
+    captured: dict = {}
+
+    async def fake_save(
+        self,
+        profile_id,
+        *,
+        interest_ids,
+        travel_style,
+        pace,
+        budget_bracket,
+        travel_companion=None,
+        trip_motivation=None,
+    ):  # noqa: ANN001
+        captured["travel_companion"] = travel_companion
+        captured["trip_motivation"] = trip_motivation
+        return {
+            "onboarding_completed_at": "2026-08-25T00:00:00Z",
+            "travel_style": travel_style,
+            "pace": pace,
+            "budget_bracket": budget_bracket,
+            "travel_companion": travel_companion,
+            "trip_motivation": trip_motivation,
+        }
+
+    async def fake_get_ids(self, profile_id):  # noqa: ANN001
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.onboarding_repository.OnboardingRepository.save_onboarding_responses",
+        fake_save,
+    )
+    monkeypatch.setattr(
+        "app.repositories.onboarding_repository.OnboardingRepository.get_interest_ids_for_profile",
+        fake_get_ids,
+    )
+
+    payload = OnboardingResponsesRequest(
+        interest_ids=[],
+        travel_companion="family",
+        trip_motivation="Trying real local food and learning the history behind places.",
+    )
+    data, saved = await onboarding_service.submit_responses(_USER, payload)
+
+    assert saved is True
+    assert captured["travel_companion"] == "family"
+    assert (
+        captured["trip_motivation"]
+        == "Trying real local food and learning the history behind places."
+    )
+    assert data.travel_companion == "family"

@@ -8,7 +8,16 @@ import { PhrasebookScreen } from "../PhrasebookScreen";
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useRoute: () => ({ params: { tripId: "trip-1" } }),
+  useNavigation: () => ({ goBack: jest.fn() }),
 }));
+
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  return { useTranslation: () => ({ t }) };
+});
 
 jest.mock("../../api/phrasebook", () => ({
   downloadTripPhrasebook: jest.fn(),

@@ -2,11 +2,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import { AppNotification, listNotifications, markNotificationRead } from "../api/notifications";
-import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
 type LoadState =
@@ -28,6 +32,7 @@ const ICONS: Record<AppNotification["type"], React.ComponentProps<typeof Ionicon
  * channel regardless of push-delivery success (API_SPECIFICATION.md §15
  * / §24) — this screen is real user-scoped data, never a demo feed. */
 export function NotificationsCentreScreen(): React.JSX.Element {
+  const insets = useSafeAreaInsets();
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   const resolveNotifications = useCallback(async (): Promise<LoadState> => {
@@ -82,11 +87,10 @@ export function NotificationsCentreScreen(): React.JSX.Element {
   );
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Notifications</Text>
-      </View>
+    <GradientBackground>
+      <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
+      <StatusBar style="light" />
+      <ScreenHeader title="Notifications" />
 
       {state.status === "loading" && (
         <View style={styles.centered}>
@@ -96,15 +100,18 @@ export function NotificationsCentreScreen(): React.JSX.Element {
 
       {state.status === "error" && (
         <View style={styles.centered} testID="notifications-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="notifications-retry-button" />
+          <ErrorState
+            message={state.message}
+            retryLabel="Retry"
+            onRetry={load}
+            testID="notifications-retry-button"
+          />
         </View>
       )}
 
       {state.status === "success" && state.notifications.length === 0 && (
         <View style={styles.centered} testID="notifications-empty">
-          <Ionicons name="notifications-off-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyText}>You&apos;re all caught up.</Text>
+          <EmptyState icon="notifications-off-outline" title="You're all caught up." />
         </View>
       )}
 
@@ -131,12 +138,13 @@ export function NotificationsCentreScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   header: { padding: spacing.lg, paddingBottom: spacing.sm },
   title: { ...typography.title, color: colors.text },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },

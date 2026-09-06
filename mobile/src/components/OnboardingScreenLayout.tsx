@@ -4,10 +4,11 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "./Button";
+import { GradientBackground } from "./GradientBackground";
 import { ProgressDots } from "./ProgressDots";
 import { colors, spacing, typography } from "../theme/tokens";
 
-const TOTAL_ONBOARDING_STEPS = 4;
+const TOTAL_ONBOARDING_STEPS = 5;
 
 interface Props {
   stepIndex: number;
@@ -39,8 +40,9 @@ export function OnboardingScreenLayout({
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
+      <StatusBar style="light" />
 
       <View style={styles.header}>
         <ProgressDots total={TOTAL_ONBOARDING_STEPS} currentIndex={stepIndex} />
@@ -79,12 +81,13 @@ export function OnboardingScreenLayout({
           />
         )}
       </View>
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",

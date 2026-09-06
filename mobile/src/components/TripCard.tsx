@@ -3,15 +3,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 import type { Trip } from "../api/trips";
+import { useTranslation } from "../i18n";
 import { colors, radius, spacing, typography } from "../theme/tokens";
-
-const STATUS_LABEL: Record<Trip["status"], string> = {
-  draft: "Draft",
-  upcoming: "Upcoming",
-  active: "On the go",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
 
 const STATUS_COLOR: Record<Trip["status"], string> = {
   draft: colors.textMuted,
@@ -28,10 +21,18 @@ interface Props {
 }
 
 export function TripCard({ trip, onPress, testID }: Props): React.JSX.Element {
+  const { t } = useTranslation();
   const dateLabel =
     trip.start_date && trip.end_date
       ? `${trip.start_date} → ${trip.end_date}`
-      : "Dates not set yet";
+      : t("trips.datesNotSet");
+  const STATUS_LABEL: Record<Trip["status"], string> = {
+    draft: t("trips.statusDraft"),
+    upcoming: t("trips.statusUpcoming"),
+    active: t("trips.statusActive"),
+    completed: t("trips.statusCompleted"),
+    cancelled: t("trips.statusCancelled"),
+  };
 
   return (
     <Pressable

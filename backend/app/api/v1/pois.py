@@ -56,11 +56,22 @@ async def nearby_pois(
     params: PoiNearbyQuery = Depends(),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> Envelope[list[PoiResponse]]:
-    """`ST_DWithin` query against the real database — no live provider call
-    (see app/services/poi_service.py's module docstring for why)."""
+    """`ST_DWithin` query against the real database, live-augmented via
+    Geoapify Places when sparse (see app/services/poi_service.py's module
+    docstring — Maps Integration phase). Degrades to cache-only results
+    (never a hard failure) when live search is unavailable —
+    `meta.degraded_mode` tells the client, same contract as `/search`."""
     del user
-    results = await poi_service.nearby(params)
-    return Envelope(data=[PoiResponse.model_validate(row) for row in results])
+    results, degraded = await poi_service.nearby(params)
+    meta = (
+        Meta(
+            degraded_mode=True,
+            message="Live nearby search is temporarily unavailable — showing curated results only.",
+        )
+        if degraded
+        else None
+    )
+    return Envelope(data=[PoiResponse.model_validate(row) for row in results], meta=meta)
 
 
 @router.get("/{poi_id}", response_model=Envelope[PoiResponse])

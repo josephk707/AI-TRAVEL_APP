@@ -1581,3 +1581,500 @@ Every checklist item is satisfied **except**: F20's non-weather trigger auto-det
 ## STOP
 
 Phase 8 (F19/F20/F21/F22/F23/F24/F26 — the product roadmap's "Intelligent Travel Companion") is classified **PARTIAL**, not COMPLETE. Every backend endpoint, database change, and mobile screen for all seven features is real, live-verified against the real Supabase project, and free of fake/hardcoded/simulated functionality — 42/42 new backend tests and 25/25 new mobile tests pass, with zero regressions across either full suite (294/300 backend, 156/156 mobile). Two `ARCHITECTURE_REVIEW.md` findings (H2, H5) blocking this exact area were read, resolved, and documented before implementation began, per instruction. The phase is not COMPLETE for six honestly-classified reasons: F20's non-weather disruption triggers and true scheduled cadence, F21's SMS channel (no vendor ever decided) and email channel (real client, no live credential to confirm), and F26's map-tile caching and `expo-sqlite` structured cache (a real, verified file-based alternative was built instead) — none fabricated, all specifically named above with the exact remaining work. Per CLAUDE.md §12, no further phase has been started and no Phase 3/4 product-roadmap feature (automated booking, AI trip recap, predictive recommendations, etc.) was touched. Waiting for (1) a decided SMS vendor and/or configured `SMTP_*`/`WEATHER_API_KEY` credentials to close the two live-confirmation blockers, (2) all limitations carried forward from Phases 1–7 unchanged, and (3) explicit authorization to begin the next phase thereafter.
+
+---
+---
+
+## UI/UX OVERHAUL + LANGUAGE SETTINGS PHASE
+
+**Status: COMPLETE**
+
+---
+
+## Objective
+
+Two objectives only, per this authorization: (1) a complete application-wide UI/UX redesign matching a supplied design reference, and (2) making the previously-prototype language functionality genuinely operational end-to-end — selection, persistence, backend propagation, and AI-content language-awareness. Explicitly NOT Phase 9 and NOT any new product feature; the existing backend/AI/auth/maps/trip-planning functional foundation was preserved, not rewritten.
+
+---
+
+## Part 1 — UI/UX Overhaul
+
+### Design system foundation
+
+- `mobile/src/theme/tokens.ts` — replaced the Phase-1 neutral/light token set with a dark indigo-violet palette (new `gradients` and `shadow` token groups; existing `colors`/`spacing`/`radius`/`typography` keys kept the same names so every existing screen re-skinned automatically without call-site changes).
+- `app.config.js` — `userInterfaceStyle` moved `light` → `dark`; every screen's `<StatusBar style="dark">` moved to `style="light"`.
+- New dependency: `expo-linear-gradient` (gradient buttons/backgrounds — a bundled Expo native module, not an external service). `expo-localization` was also added (see Part 2 — first-run device-locale default).
+- New shared components (`mobile/src/components/`): `GradientBackground`, `ScreenHeader` (replaces each screen's own ad hoc back-button/title markup), `EmptyState`/`ErrorState` (standardize the loading/empty/error/retry states CLAUDE.md §11 already required per-screen — same visual language everywhere instead of ad hoc per-screen markup), `IconBadge`, `BottomNavBar`.
+- Restyled existing shared components for the dark theme and fixed several hardcoded light-mode hex colors that would otherwise render as invisible/wrong-contrast cutouts against the new dark surfaces: `Button`, `Card`, `LoadingView`, `PoiCard`, `TripCard`, `SelectableCard`, `ItineraryItemCard`, `ConfidenceBadge`, `OnboardingScreenLayout`.
+- **Bottom navigation — documented decision (CLAUDE.md §13):** implemented as a persistent `BottomNavBar` (Home/Trips/Explore/Profile + an elevated center action) calling the existing single stack's `navigation.navigate()`, NOT a nested `Tab.Navigator` restructuring of `RootNavigator`. Native-stack's `navigate()` (unlike `push()`) already returns to an existing route instance already in the stack instead of piling up duplicate copies — genuine tab-like switching without touching the navigation param dependencies of the ~20 screens already wired to `RootStackParamList`, and without the higher regression risk a full navigator restructure would carry. The center action opens `TripCreation` (real AI trip planning) rather than `Chat`, which requires a `tripId` a nav bar has no way to supply — never a mismatched/fake destination. Documented in `docs/MOBILE_ARCHITECTURE.md` §10a.
+- **New screens** (the account/settings surface implied by the reference didn't exist before this phase): `ProfileScreen` (real profile data via the existing `GET /auth/me`, links to Trips/Saved/Notifications/Settings, real sign-out moved here from Home), `SettingsScreen` (Language row with live current-language label, Notifications link, real sign-out), `LanguageSettingsScreen` (see Part 2).
+
+### Screens redesigned
+
+All 23 pre-existing screens plus the 3 new ones — **26 screens total** — were audited and restyled. Two depths of treatment, both real (not partial in the sense of "half-broken" — every screen compiles, passes its tests, and visually matches the dark design system; the difference is i18n depth, see Part 2):
+
+**Full treatment (redesign + hero-namespace i18n)**, done directly, screen-by-screen, preserving every existing API call, testID, and business-logic path: `SignInScreen`, `HomeScreen`, `ExploreScreen`, `PoiDetailScreen`, `TripsListScreen`, `TripCreationScreen`, `ItineraryViewScreen`, `PhrasebookScreen`, `HeritageNarrationScreen`, plus the 3 new screens (`ProfileScreen`, `SettingsScreen`, `LanguageSettingsScreen`).
+
+**Visual-only treatment** (dark theme, `GradientBackground`, `ScreenHeader`/`EmptyState`/`ErrorState` adoption where it was a clean low-risk swap, hardcoded-color fixes; English copy preserved as-is — a documented, honest scope decision, see Part 2's "hero vs. standard namespace" split, not an oversight): `ChatScreen`, `TranslateScreen`, `PhotoQAScreen`, `CollectionsScreen`, `NotificationsCentreScreen`, `BudgetViewScreen`, `MemoryBoxScreen`, `OnTripCompanionScreen`, `GroupInviteScreen`, `SafetyScreen`, `QuickPlanScreen`, and the 4 onboarding screens (`BudgetBracketScreen`/`TravelStyleScreen`/`InterestSelectScreen`/`OnboardingCompleteScreen` — the first three inherit their chrome from `OnboardingScreenLayout`, fixed once rather than per-screen).
+
+This work was split across this session directly (9 full-treatment screens + all new screens/infra) and three parallel background agents briefed with the exact same 6-step pattern and told to preserve every `testID`, never touch business logic, and verify their own `tsc`/`jest`/`eslint` before finishing (the 14 visual-only screens above) — each agent's output was independently re-verified against the full project `tsc`/`jest`/`eslint` afterward, not taken on trust.
+
+### UI/UX safety requirements — verified, not assumed
+
+No API contract was changed for UI reasons (the one API change, `PATCH /v1/auth/me`, is a Part-2 functional requirement, documented below). No database schema was changed for UI reasons. No working functionality was removed — every screen's existing `fetch*`/`create*`/`submit*` calls, loading/error/empty branches, and `testID`s are unchanged; only presentation markup and (for the 12 full-treatment screens) hardcoded strings moved to `t()` calls. No mock data was introduced anywhere. Authentication/authorization is untouched.
+
+---
+
+## Part 2 — Language Functionality
+
+### Audit findings (before any code was written)
+
+1. UI previously had zero language selector — no Settings screen existed at all.
+2. No persisted language preference anywhere — no local storage key, no DB column.
+3. F10 (`TranslateScreen`/`PhrasebookScreen`, `/v1/translate/*`) is a **different feature**: an on-demand phrase/speech translator into an explicitly-chosen target language, and phrasebook entries are keyed by the **destination's** local language (`phrasebook_entries.language_code`), not the user's own UI language — conflating the two would have been a product-understanding bug (showing Tamil UI chrome to a user visiting Kerala should not silently switch their phrasebook to Tamil phrases). This phase left F10's existing behavior untouched and only added app-UI-chrome translation.
+4. No language/locale column existed on `profiles` or anywhere else — a real schema gap, not something to fake around.
+5. No backend translation endpoint for UI strings existed or was needed (per this authorization's ordering: local static resources first).
+6. Backend already had hardcoded-English AI system prompts (itinerary/chat/quick-plan/narration/photo-Q&A) with no language parameter anywhere.
+7. Existing supported "other language" sets were inconsistent across features: F10 dynamic translation supports Hindi/Telugu/Malayalam/Kannada; the phrasebook seed data covers Hindi/Kannada/Tamil. This phase's language list is the **union** of both (English, Hindi, Telugu, Malayalam, Kannada, Tamil) — a deliberate, documented alignment decision, not a new arbitrary choice.
+8. No external translation API was configured or required — static local resources plus the existing Gemini-backed AI pipeline covered every real requirement; per this authorization's explicit instruction, no paid dependency was introduced and none is needed.
+
+### Translation architecture (order actually followed, per this authorization's required preference order)
+
+**A. Existing infrastructure reused:** the existing `expo-secure-store`-backed storage adapter (`src/lib/secureStorage.ts`, already used for the Supabase session) is reused for local language persistence — no new storage dependency. The existing `apiPatch` client method and the existing `Router → Service → Repository` backend pattern were reused for the new endpoint.
+**B. Local/static resources for fixed UI text:** `mobile/src/i18n/` — real, hand-written translations (not machine-garbled placeholder text) for 14 namespaces (`common`, `nav`, `auth`, `home`, `profile`, `settings`, `languageSettings`, `explore`, `poiDetail`, `trips`, `tripCreation`, `itineraryView`, `phrasebook`, `heritageNarration` — the namespaces backing the CLAUDE.md-specified test screens: Login, Home, Explore, Trip planning, Itinerary, POI/heritage content, Phrasebook, Settings) across all 6 languages. The remaining namespaces (Chat, Translate, Photo Q&A, Collections, Notifications, Budget, Memory Box, On-Trip Companion, Group, Safety, Quick Plan, onboarding) are English-only for this phase — a documented scope decision, not a bug: `t()`'s runtime fallback (English, then the raw key) means nothing ever renders blank/undefined for these screens, satisfying "controlled fallback, never broken text" exactly as instructed, while avoiding fabricating a further ~150 keys × 5 languages of unreviewed translation within this phase.
+**C. Existing AI multilingual capability:** `backend/app/services/ai/language.py` — a `language_instruction()` helper appended to the existing Gemini system prompts at the call site (prompt files themselves untouched) — see below.
+**D. External API:** not introduced. Not required.
+
+### Real, working feature — end to end
+
+1. **Language Settings screen** (`LanguageSettingsScreen`) — reachable Profile → Settings → Language. Lists all 6 languages in their own script (हिन्दी/తెలుగు/മലയാളം/ಕನ್ನಡ/தமிழ்/English) with a live checkmark on the active one.
+2. **Selection applies immediately** — `LanguageContext`'s `t()` is read by every screen via `useTranslation()`; changing `language` re-renders the whole tree with no restart, verified in `LanguageContext.test.tsx`.
+3. **Persistence** — `expo-secure-store` (`yatra_language` key), verified surviving a simulated remount in tests.
+4. **Backend propagation** — `PATCH /v1/auth/me` (new; `body: { preferred_language }`) persists to a new `profiles.preferred_language` column (migration `20260828120002_add_preferred_language.sql`, live-applied and live-verified against the real Supabase project — see below). `GET /auth/me` and `POST /auth/session/bootstrap` now return it.
+5. **Survives restart/re-login** — local storage covers app restart; the backend column plus a documented reconciliation rule (`LanguageContext.tsx`'s doc comment: a device with no explicit local choice adopts the account's server value on first profile load post-login; a device with an explicit choice pushes it to the server instead) covers reinstall/new-device login.
+6. **AI-generated content respects the selection** — `language_instruction()` is now appended to the system prompt at the call site in `itinerary_service.py`, `modification_service.py` (chat), `quick_plan_service.py`, `narration_service.py` (+ `heritage.py` router now passes the caller's verified `user.id` instead of discarding it), and `photo_qa_service.py` (same router change) — every AI text-generation pipeline in the product now honors `profiles.preferred_language`, not just a token subset.
+7. **Phrasebook** — correctly left keyed to the destination's own local language (see audit finding 3 above); this phase's UI-language selection does not, and should not, override it.
+8. **Controlled fallback, never broken text** — verified both by code (`t()`'s two-level fallback) and by test (`LanguageContext.test.tsx`'s "falls back to the English string for a key missing from the active language's file" case, asserting a genuinely-missing key renders the literal key string, never `undefined`).
+9. **First-run default** — `expo-localization` detects the device's OS locale as the pre-authentication default (e.g. `SignInScreen` itself renders in the phone's language when supported) without ever being treated as an "explicit choice," so a genuine account preference from another device still wins once sign-in completes.
+
+### Database change
+
+**Required and justified** — no existing column held anything language-related; `home_region` is a *destination* field (seeds phrasebook defaults), not a UI-language preference, and reusing it would have conflated two different concepts (audit finding 3). One column, one migration:
+
+```sql
+-- 20260828120002_add_preferred_language.sql
+alter table public.profiles
+  add column preferred_language text not null default 'en'
+    check (preferred_language in ('en', 'hi', 'te', 'ml', 'kn', 'ta'));
+```
+
+Applied live via `scripts/apply_migrations.py` and independently verified live via a direct `information_schema.columns` query against the real Supabase project (both shown in this session's transcript) — not assumed from the migration file alone. No data was deleted, no table was reset, RLS was not touched (the new column inherits the `profiles` table's existing RLS policies unchanged). Documented in `docs/DATABASE_SCHEMA.md` §3.
+
+### API change
+
+`PATCH /v1/auth/me` — new, documented in `docs/API_SPECIFICATION.md` §2. Deliberately scoped to `{ preferred_language }` only (`UpdateProfileRequest`/`SupportedLanguage` in `backend/app/schemas/auth.py`) — not a general profile-edit endpoint. An unsupported code is rejected `400` by Pydantic validation before any write reaches the database (verified live — see Tests below).
+
+---
+
+## Tests Executed
+
+All commands below were actually run this session — raw output is in the transcript, not assumed.
+
+### Backend (live Supabase project, via `scripts/run_live_tests.py`)
+
+| Command | Result |
+|---|---|
+| `pytest` (full suite) | **304 passed, 14 skipped** (skips are pre-existing, unrelated to this phase — missing `GEMINI_API_KEY`/`WEATHER_API_KEY`/`SMTP_*` in this environment, carried forward from prior phases) |
+| `pytest tests/test_auth_api.py -v` (isolated, real ephemeral Supabase users) | **10/10 passed**, including the 4 new tests: `test_get_me_defaults_preferred_language_to_en`, `test_patch_me_persists_preferred_language` (writes `hi`, re-fetches on a *separate* request to prove a real write, not an echoed body), `test_patch_me_rejects_an_unsupported_language_code` (asserts the rejected value was never written), `test_patch_me_rejects_a_request_with_no_authorization_header` |
+| `ruff check .` | clean |
+| `black --check .` | clean |
+| `mypy app` | clean (the 2 pre-existing `gemini_adapter.py` errors were confirmed via `git stash` to predate this session — not introduced by it) |
+| Live `information_schema.columns` query against the real database | confirmed `preferred_language` exists, type `text`, default `'en'::text` |
+
+### Mobile
+
+| Command | Result |
+|---|---|
+| `npx tsc --noEmit` | clean |
+| `npm run lint` (`expo lint`) | clean |
+| `npx jest` (full suite) | **32 suites / 173 tests passed** (155 pre-existing + 18 new: 5 `LanguageContext.test.tsx`, 5 `LanguageSettingsScreen.test.tsx`, 4 `SettingsScreen.test.tsx`, 4 `ProfileScreen.test.tsx`) |
+| `npx expo export --platform android` | **succeeded — 1192 modules bundled into a real Hermes bytecode bundle**, proving the whole app (every touched screen, the new i18n system, `expo-linear-gradient`, `expo-localization`) actually resolves and builds, not just typechecks |
+
+### Bugs found and fixed during this phase's own testing (not hidden)
+
+1. `expo-linear-gradient`'s real native view hung `processColor` indefinitely under Jest's non-native environment, timing out every component test that rendered a gradient (`Button`, `IconBadge`, `BottomNavBar`, `GradientBackground`) — fixed with a `jest.setup.js` mock swapping it for a plain `View` in tests only.
+2. A test-only `useTranslation()` mock returning a fresh object/functions on every call gave `HomeScreen`'s `loadProfile` `useCallback` a new dependency every render, looping its mount effect forever (only surfaced as a 5000ms test timeout, not a type or lint error) — fixed by hoisting the mock's `t`/`syncFromServerProfile` to stable module-scoped references, mirroring the real `LanguageContext`'s own `useCallback`/`useMemo` stability guarantee.
+3. `ErrorState`'s `testID` prop was applied to the non-interactive outer container instead of the actual retry `Button`, so `fireEvent.press` on the documented testID silently pressed nothing — found by a genuinely failing retry test, not assumed away; fixed by forwarding `testID` to the `Button`.
+4. `PoiCard`'s icon badge and `ItineraryItemCard`/`ConfidenceBadge`/`SelectableCard`'s hardcoded light hex fills would have rendered as near-invisible or wrong-contrast against the new dark surfaces — found by an explicit hex-literal audit (`grep`), not left for a screenshot to catch later.
+
+---
+
+## Known Limitations
+
+- **Translation depth is intentionally two-tier** (see "hero vs. standard namespace" above) — 11 feature screens plus 4 onboarding screens show English UI chrome regardless of the selected language for this phase. This is a documented, honest scope decision (CLAUDE.md §13), not a partial/broken implementation — every one of those screens still fully functions in every language for its actual data (trip content, POI data, etc.), only their fixed English labels/buttons don't yet have translated copies.
+- **Translations were written by the assistant, not reviewed by a native-speaking linguist.** They are real, deliberate, idiomatic-effort translations (not machine-garbled placeholders) but have not had professional linguistic QA. Recommend a native-speaker review pass before this is treated as production-final copy for any of the 5 non-English languages.
+- **Bottom navigation is `navigate()`-based, not a `Tab.Navigator`** — a documented, deliberate lower-risk choice (see above); it does not provide `Tab.Navigator`'s built-in gesture/animation conventions (swipe-between-tabs), only tap-to-switch.
+- **No visual QA on a physical device or simulator was performed** — verified via `tsc`, `jest` (including real component rendering via `@testing-library/react-native`), `eslint`, and a real Metro/Hermes bundle export (1192 modules, no resolution errors). A real-device/simulator visual pass is recommended before shipping, per CLAUDE.md §11's "premium feel" requirement, which cannot be fully confirmed by non-visual tooling alone.
+- Every Known Limitation carried forward from Phases 1–8 (Redis-backed rate limiting, embedding-based hybrid retrieval, Google OAuth/Maps manual credential steps, Gemini daily quota live-confirmation gaps, F20/F21/F26 gaps, mobile background location tracking, etc.) remains unchanged and unaffected by this phase.
+
+## Blocked Items
+
+None. This phase required no external credential, no manual dashboard step, and no decision only the project owner could make.
+
+## Unresolved Issues
+
+- Native-speaker linguistic review of the 5 non-English translation sets (see Known Limitations).
+- Extending full i18n translation to the 15 "standard" namespace screens, if desired — a bounded, well-defined follow-up using the exact same namespace/locale-file pattern already established.
+
+---
+
+## Environment Variables Required
+
+None new. No external translation API key, no new third-party credential of any kind. All existing environment variables (Supabase, Gemini, Maps, Weather, SMTP) are unchanged and carried forward from prior phases.
+
+---
+
+## Files Created
+
+**Backend:** `backend/app/services/ai/language.py`, `supabase/migrations/20260828120002_add_preferred_language.sql`.
+
+**Mobile:** `src/theme/tokens.ts` (rewritten in place), `src/components/{GradientBackground,ScreenHeader,EmptyState,ErrorState,IconBadge,BottomNavBar}.tsx`, `src/screens/{ProfileScreen,SettingsScreen,LanguageSettingsScreen}.tsx` + matching `__tests__/*.test.tsx`, `src/i18n/{index,languages,types,LanguageContext}.ts(x)` + `__tests__/LanguageContext.test.tsx`, `src/i18n/locales/{en,hi,te,ml,kn,ta}.ts`.
+
+## Files Modified
+
+**Backend:** `app/api/v1/{auth,heritage}.py`, `app/repositories/profiles_repository.py`, `app/schemas/auth.py`, `app/services/{auth_service,itinerary_service,modification_service,narration_service,photo_qa_service,quick_plan_service}.py`, `tests/test_auth_api.py`.
+
+**Mobile:** `App.tsx` (mounts `LanguageProvider`), `app.config.js` (dark theme + `expo-localization` plugin), `jest.setup.js` (gradient mock), `package.json`/`package-lock.json` (`expo-linear-gradient`, `expo-localization`), `src/api/auth.ts` (`preferred_language` field + `updatePreferredLanguage`), `src/navigation/RootNavigator.tsx` (3 new routes), `src/components/{Button,Card,ConfidenceBadge,ItineraryItemCard,OnboardingScreenLayout,PoiCard,SelectableCard,TripCard}.tsx`, all 23 pre-existing screens (see "Screens redesigned" above) + their `__tests__` files where a new `useNavigation`/`useTranslation` dependency required a mock update.
+
+**Docs:** `docs/API_SPECIFICATION.md` (§2 — `PATCH /v1/auth/me`), `docs/DATABASE_SCHEMA.md` (§3 — `preferred_language` column), `docs/MOBILE_ARCHITECTURE.md` (§10a — new section documenting this phase's design-system/navigation/i18n decisions), this file.
+
+---
+
+## STOP
+
+UI/UX Overhaul + Language Settings is classified **COMPLETE**. Both authorized objectives are genuinely, verifiably done: every one of the 26 screens (23 pre-existing + 3 new) is restyled to the dark design-system reference and compiles/tests/bundles cleanly with zero regressions across either full suite (304 passed/14 pre-existing skips backend, 173/173 mobile); the language feature is real end-to-end (selection → persistence → backend column → AI-content propagation → restart/re-login survival → controlled fallback), live-verified against the real Supabase project, with no external translation API introduced. Two honestly-scoped, documented limitations remain (two-tier translation depth; no native-speaker linguistic QA) — neither blocks the feature from being genuinely functional, both are clearly named rather than hidden. Per CLAUDE.md §12 and this authorization's explicit instruction, Phase 9 was not started and no unrelated feature was added. Waiting for explicit authorization to begin Phase 9.
+
+---
+---
+
+## MAPS INTEGRATION — GEOAPIFY PLACES + OPEN-METEO WEATHER
+
+**Status: COMPLETE (Places + Weather only, as explicitly scoped)**
+
+---
+
+## Objective
+
+Explicitly scoped, maps-only addendum (not a new numbered phase — no unrelated feature touched, per instruction): add real Geoapify Places data to the existing `react-native-maps`-based Explore/POI-detail experience, and real Open-Meteo weather to POI detail — without migrating off `react-native-maps`, without touching auth/Supabase/DB schema beyond what Places genuinely needed, and without assuming Geocoding/Reverse Geocoding/Routing/Route Matrix are enabled.
+
+---
+
+## Audit (before any code was written)
+
+The existing map/POI architecture was already exactly the right shape for this: `GET /v1/pois/search` and `GET /v1/pois/nearby` already existed, backed by a documented cache-first/live-augment-when-sparse policy against `GooglePlacesClient` (unconfigured in this environment). Mobile's `ExploreScreen`/`PoiDetailScreen` already render whatever `pois.ts` returns via the existing `react-native-maps`-backed `PlatformMap` component — meaning a second, real places provider could be wired in at the SAME seam Google already used, with `react-native-maps` never touched at all.
+
+**Key finding, verified empirically before implementing anything:** Geoapify's **Places API has no free-text query parameter** — resolving typed text ("Taj Mahal") into a location is Geocoding's job, a separate Geoapify product this authorization explicitly said not to assume is enabled. This meant the existing `search()` free-text path (what `ExploreScreen`'s search box already calls) could not be augmented with Geoapify without geocoding. `nearby()` (the existing lat/lng-based, previously DB-only endpoint) was the correct, honest integration seam instead — it needs exactly what Geoapify Places actually provides: real radius/category search around a point.
+
+---
+
+## Geoapify services implemented
+
+**Places (F6) — COMPLETE, live-verified.**
+- `backend/app/services/geoapify_places_client.py` — new client, same shape/error contract as the pre-existing `google_places_client.py`.
+- `backend/app/services/poi_service.py` — `nearby()` now applies the same cache-first/live-augment-when-sparse policy `search()` already used for Google, but against Geoapify (documented decision superseding the prior "nearby is intentionally DB-only" note — CLAUDE.md §13). `search()`'s own free-text and lat/lng-only paths are **completely unchanged** (their own locking test still passes unmodified).
+- Real-data live verification (not just HTTP 200s): Mysore Palace + 2 real nearby monuments discovered and cached from a DB-sparse point; Hampi (Virupaksha Temple + 11 more real UNESCO-site POIs) discovered and cached from a second, independently-chosen sparse point — both via the actually-running backend with a real Supabase-issued token, not mocked.
+- `GET /v1/pois/nearby` now returns the same `meta.degraded_mode`/`message` shape `/search` already did, so the client can tell "real live discovery happened" from "cache-only, live augmentation unavailable" — never silently incomplete.
+- Mobile: `ExploreScreen` gained a real "use my location" action (`expo-location`, already a dependency) that calls the existing `fetchNearbyPois()` — reuses 100% of the existing list/map/marker rendering, `react-native-maps` untouched.
+
+**NOT implemented this iteration, per explicit instruction — capability audit for when authorized:**
+
+| Service | What it would additionally require |
+|---|---|
+| **Geocoding** (text → coordinates) | A Geoapify Geocoding API key/plan enabled on the same account (same `GEOAPIFY_API_KEY` may work if the plan includes it — needs confirming in the Geoapify dashboard). Would power: resolving `ExploreScreen`'s free-text search box into a location so Places augmentation can apply to *typed* queries, not just "nearby". New client method (`GET /v2/geocode/search?text=...`), no schema change. |
+| **Reverse Geocoding** (coordinates → address) | Same account/plan question as Geocoding (Geoapify bundles these under one product in most plans, but confirm). Would power: showing a human-readable address for the device's current GPS position (e.g. in a trip's "on-trip companion" location card) instead of raw lat/lng. New client method (`GET /v2/geocode/reverse?lat=&lon=`), no schema change. |
+| **Routing** (A→B directions/travel time) | A Geoapify Routing API key/plan (again may be bundled, needs confirming) — this is a genuinely separate, typically separately-billed product from Places on most providers. Would power: real walking/driving time between itinerary stops, a "directions" action from POI detail. New client + new schema fields if travel-time is persisted (currently nothing stores this). |
+| **Route Matrix** (many-to-many travel times) | Same account/plan question as Routing, plus materially higher call volume/cost per request (N×M distances in one call) — worth confirming Geoapify's rate limits/pricing tier before use. Would power: reordering a multi-stop day's itinerary by real travel time (currently itinerary ordering has no travel-time input at all). |
+
+None of these were implemented, called, or assumed configured — `GEOAPIFY_API_KEY` was used exclusively via the Places endpoint shown above.
+
+---
+
+## Weather implemented
+
+**Open-Meteo — COMPLETE, live-verified, no API key (real, not a placeholder — Open-Meteo's non-commercial tier is genuinely keyless).**
+- `backend/app/services/open_meteo_client.py` + `open_meteo_service.py` + `app/schemas/weather.py` + `app/api/v1/weather.py` — new `GET /v1/weather?lat=&lng=`, real current conditions + 5-day forecast, WMO weather-code descriptions.
+- **Deliberately separate** from the pre-existing `weather_client.py`/`weather_service.py` (OpenWeatherMap, `WEATHER_API_KEY`-gated, internal-only, powers the F3 adverse-weather itinerary flag) — that pipeline is completely untouched; this is a new, additive, user-facing capability.
+- Mobile: new `src/api/weather.ts` + new `src/components/WeatherCard.tsx`, wired into `PoiDetailScreen` (a place's own coordinates feed it directly) — real current temp/condition/humidity/wind + a 5-day forecast strip, with its own explicit loading/success/error states (never silently blank).
+- Live-verified with a real sanity-bounded assertion (Agra, India in August: -10°C to 55°C bound, passed with a real returned value) — not just a 200 status.
+
+---
+
+## Backend changes
+
+New: `app/services/geoapify_places_client.py`, `app/services/open_meteo_client.py`, `app/services/open_meteo_service.py`, `app/schemas/weather.py`, `app/api/v1/weather.py`.
+Modified: `app/core/config.py` (+`geoapify_api_key`), `app/services/poi_service.py` (`nearby()` live-augmentation), `app/api/v1/pois.py` (`nearby_pois` now returns `meta`), `app/api/v1/router.py` (mounts `weather.router`), `.env.example` (+`GEOAPIFY_API_KEY` placeholder, weather section clarified).
+Tests added: `tests/test_geoapify_places_client.py`, `tests/test_open_meteo_client.py`, `tests/test_open_meteo_service.py`, `tests/test_weather_api.py`; extended `tests/test_poi_service.py` (nearby-augmentation coverage) and `tests/test_pois_api.py` (docstring accuracy — assertions unchanged).
+
+## Database changes
+
+**None.** Geoapify-discovered places are cached into the existing `pois` table via the existing `upsert_from_places_api` path (`source='places_api'`, same as Google) — no new table, no migration. Weather is not persisted at all (Open-Meteo is called live, matching its own free/non-commercial terms of a live, uncached call).
+
+## Environment variables required
+
+`GEOAPIFY_API_KEY` — already configured by the project owner in `backend/.env`, confirmed present (name only, value never read into this report) and live-verified working. No variable needed for Open-Meteo (keyless by design).
+
+---
+
+## Verification performed (real API responses, not HTTP 200s alone)
+
+- **Backend**: full live suite against the real Supabase project — **334 passed, 14 pre-existing skips (unrelated: missing `GEMINI_API_KEY`/`WEATHER_API_KEY`/`SMTP_*`), 0 failed** — zero regressions across every existing feature (auth, trips, safety, phrasebook, memory, budget, notifications, group, disruptions, quick plans, offline, onboarding, reviews, collections, translation, heritage, location, admin). `ruff`/`black`/`mypy` clean (2 pre-existing, unrelated `gemini_adapter.py` errors confirmed via `git stash` to predate this work).
+- **Places**: real Mysore Palace + Hampi/Virupaksha Temple discoveries, verified by direct DB inspection (real rows, real Geoapify `external_ref`s) and by the full authenticated HTTP round-trip.
+- **Weather**: real live Open-Meteo response for Agra and for Hampi, sanity-bound-asserted, not just status-checked.
+- **Regression smoke** (real auth token, live server, after every code change): login/bootstrap, `GET /auth/me`, `PATCH /auth/me` (language), POI search, POI nearby, weather, trip list, phrasebook, safety contacts, collections — all real 200s with real, inspected response bodies.
+- **Mobile**: `tsc --noEmit` clean, `expo lint` clean, **179/179 Jest tests passed** (18 new: Geoapify-nearby UI flow ×3, weather-card ×2, `fetchNearbyPois` meta ×1, plus existing-suite regressions all still green).
+- **Web**: `expo start --web` — Metro bundled cleanly (858→ same after these changes, 0 errors), the actual served bundle fetched over HTTP and confirmed to contain the new `WeatherCard`/Geoapify-related identifiers (not a stale cache), app genuinely launched (`Running application "main"` in the live Metro log).
+- **Android**: `npx expo export --platform android` — 1192 modules, real Hermes bytecode bundle, 0 errors, both before and after this work.
+
+## Web status
+
+**PASS.** Backend live at `http://127.0.0.1:8000` (and LAN `http://10.200.4.180:8000`) with `--reload`; Metro live at `http://localhost:8081`; both verified serving real, current code.
+
+## Android status
+
+**PASS (bundle-level).** `expo export --platform android` succeeds cleanly with all new code included. No physical device/emulator was available in this environment to verify the native build/install step itself — bundle-level verification is the same bar every prior phase in this project used (see Phase 1's own validation record).
+
+## Regression status
+
+**PASS — zero regressions.** Login, Home, Trip planning, Explore, Language, Safety, Phrasebook, Memories, AI (unaffected — no AI files touched), Supabase (RLS/auth untouched), Backend (334/334 live-passing tests), Web, Android all verified per above.
+
+## Genuine remaining blockers
+
+1. Whether the current `GEOAPIFY_API_KEY`'s plan includes Geocoding/Reverse Geocoding/Routing/Route Matrix, or whether those need separate enablement/keys — needs checking in the Geoapify dashboard before any of those four are implemented (per this iteration's explicit instruction, none were attempted).
+2. Everything carried forward from the UI/UX Overhaul + Language Settings phase above (native-speaker translation QA, two-tier translation depth) and every earlier phase's documented limitations — all unaffected and unchanged by this work.
+
+---
+
+## STOP
+
+Places (Geoapify) and Weather (Open-Meteo) are genuinely, live-verifiably working end to end — real data confirmed at two independent real-world locations for Places, real sanity-checked live data for Weather — with zero regressions across a 334-test live backend suite and a 179-test mobile suite, and `react-native-maps` completely untouched (not migrated, not replaced). Geocoding, Reverse Geocoding, Routing, and Route Matrix were deliberately NOT implemented or assumed available, per explicit instruction; the capability audit above states exactly what each would need. No unrelated feature (auth, Supabase, DB schema beyond the already-existing `pois` cache path, Safety, Phrasebook, Memories, Language, AI architecture, Trip Planning architecture) was modified. Waiting for explicit authorization before implementing any of the four deferred services, and no further phase was started.
+
+---
+
+## FINAL PERSONALIZATION + TRANSLATION/VOICE INTEGRATION PHASE
+
+**Status: PARTIAL** — every code path is genuinely implemented, live-tested where this environment allows, and regression-clean, but two real external dependencies remain unconfigured in this environment (`GEMINI_API_KEY` — blocks live AI-generated Travel DNA/translation text; no physical Android device or interactive browser available in this sandbox — blocks manually clicking through voice input/output). See "The Blockers" below before assuming either capability is unverified code, not a real gap.
+
+---
+
+## Objective
+
+Genuinely personalize Yatra AI per user (richer onboarding, progressive learning from real activity, a "Travel DNA" profile section, personalization threaded into existing itinerary generation), fix the existing Translate-a-Phrase screen into a real 2-sentence prototype with real voice input and voice output — all reusing the existing Gemini/`LLMGateway` and Supabase architecture, explicitly no new AI system, no ML pipeline, no new infrastructure. Declared "the final functionality phase" — no further phase to be started after this one.
+
+---
+
+## Requirements Implemented
+
+| # | Requirement | Status |
+|---|---|---|
+| 1 | Onboarding expanded from 4 to 5 screens / 6 questions (interests, travel_style, pace, budget_bracket, travel_companion, trip_motivation) | COMPLETE |
+| 2 | Personalization data stored server-side, reusing existing schema (`profiles` +2 columns, `personalization_profile` reused as-is) | COMPLETE |
+| 3 | Personalization connected to the existing Gemini itinerary pipeline (no second AI call on the hot path) | COMPLETE (code); AI-generated text itself unverifiable live — no `GEMINI_API_KEY` |
+| 4 | "Your Travel DNA" profile section — real personality label + narrative summary, honest template fallback when Gemini unavailable | COMPLETE (code + template path live-verified); "ai"-generated variant unverifiable live |
+| 5 | Translate-a-Phrase screen fixed — 2-sentence limit (client + server, matching regex) | COMPLETE, live-verified (backend) + unit-verified (mobile) |
+| 6 | Voice INPUT — native (expo-audio record→upload→transcribe, unchanged/regression-tested) + web (Web Speech API `SpeechRecognition`, new) | COMPLETE (code); not manually exercised on hardware/browser this session |
+| 7 | Voice OUTPUT — real TTS of the real translated text via `expo-speech` | COMPLETE (code, unit-verified with correct per-language locale); not manually exercised this session |
+| 8 | Regression protection across every existing feature | COMPLETE — 346/346 live backend tests passed (14 pre-existing, unrelated skips), 187/187 mobile Jest tests passed, 0 failures |
+
+---
+
+## The Blockers (the reason this phase is not COMPLETE)
+
+1. **`GEMINI_API_KEY` is not configured in this environment** (confirmed by directly inspecting `backend/.env` — absent, not merely empty). Every AI-dependent path in this codebase (translation, Travel DNA's "ai" branch, itinerary generation's personalized branch) already has, and correctly exercises, its documented graceful-degradation fallback (503 for translation, the honest deterministic template for Travel DNA) — this was true before this phase and remains true after it. What could **not** be demonstrated live in this environment is genuine Gemini-generated translated text or a genuine Gemini-written Travel DNA summary. This is the same class of pre-existing, previously-documented environment gap as Phase 6/8's `WEATHER_API_KEY`/SMTP/SMS blockers — not a new regression, not something this phase could resolve without a real key.
+2. **No physical Android device and no interactive browser/microphone available in this sandbox** (`adb` not installed, no emulator; the Claude-in-Chrome browser tool was declined earlier in this session). Voice input/output code is real (native `expo-audio` path unchanged and still passing its existing tests; web `SpeechRecognition`/`expo-speech` paths newly added, unit-tested with mocks, and confirmed present and correctly wired in the actual served Metro web bundle and a clean Android Hermes export) — but no one actually spoke into a microphone or listened to synthesized audio during this session. This must be manually verified by the project owner on a real device/browser before being called a true end-to-end PASS.
+
+---
+
+## Backend Implementation
+
+**New:**
+- `app/repositories/personalization_repository.py` — `get_profile`, `upsert_profile`, `get_signal_counts`.
+- `app/services/ai/prompts/personalization.py` — Travel DNA system prompt + grounded user-message builder (facts-only, hard "never invent" rules).
+- `app/services/personalization_service.py` — the Personalization Engine: gathers real facts (onboarding answers, interests, favorites, trips, feedback signals), computes `preference_weights`, calls Gemini when available else an honest deterministic template, exposes `get_personalization_context()` for the itinerary pipeline.
+- `app/schemas/personalization.py` — `TravelDnaResponse` (includes `generated_by: "ai"|"template"`, never hidden from the client).
+- `app/api/v1/personalization.py` — `GET /v1/personalization/travel-dna`.
+
+**Modified:**
+- `app/api/v1/router.py` — mounts the new personalization router.
+- `app/schemas/onboarding.py`, `app/repositories/onboarding_repository.py`, `app/services/onboarding_service.py` — `travel_companion`/`trip_motivation` threaded through the full onboarding save path.
+- `app/repositories/profiles_repository.py`, `app/schemas/auth.py` — the two new fields exposed on `GET/PATCH /auth/me`.
+- `app/services/ai/prompts/itinerary.py`, `app/services/itinerary_service.py` — itinerary generation now injects the caller's own last-computed Travel DNA summary into the existing Gemini prompt when one exists; `None` (no behavior change) for a user who never opened Travel DNA.
+- `app/schemas/translation.py` — real sentence-boundary-based 2-sentence limit (`field_validator`, not a character-count proxy).
+- **`app/core/exceptions.py` — real bug found and fixed, not just tested around:** the global `RequestValidationError` handler passed pydantic's raw `.errors()` list straight into `JSONResponse`, which is not JSON-serializable when a `field_validator` raises `ValueError` (pydantic embeds the raw exception instance in `ctx.error`) — every such request crashed with an unhandled `TypeError` instead of returning the intended `400`. Root-caused and fixed with a small sanitizer (`_json_safe_pydantic_errors`) applied to the `RequestValidationError` handler (the sibling `PydanticValidationError` handler already had its own, different-shaped protection via `exc.json()`). Caught by this phase's own new translation-limit test, not assumed away.
+
+Tests added: `tests/test_personalization_service.py` (5, unit, mocked repos), `tests/test_personalization_api.py` (4, live, real Supabase sessions), `tests/test_translation_api.py` (+2: accepts-exactly-2-sentences, rejects-3-sentences — the second is what surfaced the `exceptions.py` bug above). Tests fixed: `tests/test_onboarding_service.py` (3 existing mock signatures updated for the new kwargs, +1 new test for the new fields).
+
+## Database Implementation
+
+Migration `20260828120003_add_companion_and_motivation.sql` — `profiles.travel_companion` (checked enum) + `profiles.trip_motivation` (checked ≤500 chars). Applied live via `scripts/apply_migrations.py`, confirmed present. No other schema change — `personalization_profile` (existing table, existing `preference_weights jsonb` column) is reused exactly as-is; see `DATABASE_SCHEMA.md` §0g for the full changelog entry and §10 for what the JSON now contains.
+
+## API Implementation
+
+`GET /v1/personalization/travel-dna` (new). `POST /onboarding/responses` extended with `travel_companion`/`trip_motivation` (both optional). `POST /translate/text` now rejects >2 sentences with `400 VALIDATION_ERROR`. `GET/PATCH /auth/me` responses now include the two new profile fields. Full detail in `API_SPECIFICATION.md` §3 (Onboarding), §3b (new — Personalization), §9 (Translation).
+
+## Mobile Implementation
+
+**New:** `src/screens/onboarding/TravelMotivationScreen.tsx` (5th onboarding screen — companion picker + open-ended motivation question with a live character counter), `src/api/personalization.ts` (`fetchTravelDna()`).
+
+**Modified:** `src/onboarding/onboardingOptions.ts` (+`TravelCompanion` type, `COMPANION_OPTIONS`), `src/onboarding/onboardingStore.ts` (+2 fields/setters), `src/onboarding/useSubmitOnboarding.ts`, `src/api/onboarding.ts`, `src/api/auth.ts` (+2 fields each), `src/navigation/OnboardingNavigator.tsx` (+1 screen), `src/components/OnboardingScreenLayout.tsx` (total steps 4→5), `src/screens/onboarding/BudgetBracketScreen.tsx` (routes to the new screen), `src/screens/onboarding/OnboardingCompleteScreen.tsx` (progress dots + 2 new summary rows), `src/screens/ProfileScreen.tsx` (+"Your Travel DNA" premium gradient card — personality, summary, trip/place stats, interest chips, honest "still learning" hint when `generated_by === "template"`), `src/screens/TranslateScreen.tsx` (rewritten: language list now sourced from the app's own `SUPPORTED_LANGUAGES` i18n list instead of a separately hand-maintained one; live 2-sentence counter/limit matching the backend exactly; native voice input unchanged; new web `SpeechRecognition` voice-input path; new `expo-speech` "🔊 Listen" voice output with correct per-language BCP-47 locale; `ScreenHeader` added).
+
+New dependency: `expo-speech` (`~57.x`, matches the project's Expo SDK 57 pin — installed via `npx expo install`, not hand-pinned).
+
+## AI Implementation
+
+No new AI system, no new provider, no embeddings, no training — matches this phase's explicit anti-overengineering instruction. Travel DNA and the itinerary personalization injection both go through the same existing `LLMGateway`/Gemini adapter every other AI feature in this codebase uses. `generated_by: "ai"|"template"` is always present and honest on every Travel DNA response — the client (and this report) can always tell which happened, never smoothed over.
+
+## Security Validation
+
+`travel_companion`/`trip_motivation` and Travel DNA both scoped to the caller's own verified identity (`get_current_user()`) at every layer — no client-supplied user id accepted anywhere in the new code. `personalization_profile`'s existing RLS (SELECT-only for the owning user, no client-facing INSERT/UPDATE policy — service-role/backend-only writes) is unchanged and still correctly defense-in-depth; the backend's own `where user_id = $1` scoping in `personalization_repository.py` is the actual authorization boundary, matching the documented two-layer model. No secret, key, or credential added, logged, or exposed to the client in any file touched this phase.
+
+## Tests Executed
+
+- **Backend, full live suite** (`scripts/run_live_tests.py tests/`, real Supabase project): **346 passed, 14 skipped (pre-existing, unrelated — missing `WEATHER_API_KEY`/`GEMINI_API_KEY`/SMTP/SMS), 0 failed.** Zero regressions across every existing feature (auth, trips, itinerary, POIs, maps/weather, location, safety, phrasebook, memory box, collections, reviews, group trips, budget, notifications, quick plans, offline, feedback, admin, translation, onboarding) plus this phase's own new personalization/translation/onboarding tests.
+- `ruff check`, `black --check`, `mypy` — clean on every file touched this phase (the pre-existing, unrelated `gemini_adapter.py` mypy errors from before this phase are unchanged).
+- **Mobile**: `tsc --noEmit` clean, `expo lint` clean, **187/187 Jest tests passed** across 33 suites (8 new/extended this phase: 4 `TravelMotivationScreen`, 4 extended `onboardingStore`, 2 new `ProfileScreen` Travel-DNA tests, 2 new `TranslateScreen` tests for the sentence limit and TTS call — plus every pre-existing test in the suite, unmodified in behavior, still green).
+- **Web**: `expo start --web` bundle fetched live over HTTP from the running Metro server (`localhost:8081`) — 200 OK, confirmed to contain this phase's real identifiers (`travel-dna-success`, `TravelMotivationScreen`, `listen-button`, `fetchTravelDna`, `sentence-count`), and confirmed to contain `expo-speech`'s real `window.speechSynthesis` web implementation (not a native-only stub silently failing on web).
+- **Android**: `expo export --platform android` — 1199 modules, real Hermes bytecode bundle, 0 errors, includes all new code.
+- **NOT executed** (environment limitation, not skipped by choice): an actual interactive click-through on a physical Android device or in a real browser tab — see "The Blockers" above.
+
+## Known Limitations
+
+1. Live AI-generated text (Travel DNA "ai" branch, personalized itinerary summaries, real Gemini translation output) cannot be demonstrated in this environment — no `GEMINI_API_KEY` configured. The honest fallback paths for all three are implemented, tested, and live-verified instead.
+2. Voice input/output were verified at the code/unit/bundle level only, not by a human actually speaking into a microphone or listening to output — no physical device or interactive browser in this sandbox.
+3. Everything carried forward from every earlier phase's own documented limitations (native-speaker translation QA, Geocoding/Routing not yet enabled, WEATHER_API_KEY/SMTP/SMS still unconfigured) — unaffected and unchanged by this phase.
+
+## Blocked Items
+
+Same two items as "The Blockers" above — both require the project owner's own environment/hardware, not further code.
+
+## Unresolved Issues
+
+None found beyond the `exceptions.py` bug, which was found, root-caused, and fixed within this phase (see Backend Implementation above) — not left open.
+
+## Environment Variables Required
+
+`GEMINI_API_KEY` — not yet configured; required to move Travel DNA and translation from their honest fallback/degraded paths to genuine AI-generated output. No other new environment variable introduced this phase.
+
+## Next Phase Dependencies
+
+None — this was declared the final functionality phase. No further phase should begin without new, explicit authorization.
+
+---
+
+## STOP
+
+Personalization (onboarding expansion, Travel DNA, itinerary injection) and Translation/Voice (2-sentence limit, native+web voice input, real TTS voice output) are genuinely implemented end-to-end in code, with zero regressions across a 346-test live backend suite and a 187-test mobile suite, and one real pre-existing bug (the validation-error JSON-serialization crash in `app/core/exceptions.py`) found and fixed along the way. Two capabilities remain honestly unverified in this specific environment rather than fabricated as passing: genuine Gemini-generated text (no `GEMINI_API_KEY` configured) and interactive voice input/output on real hardware (no physical device or browser tool available this session) — both are code-complete and their non-AI/non-hardware-dependent paths are live-verified. No unrelated feature (Auth, Home, Explore, Trip Planning, Itinerary's non-personalization behavior, Maps, Weather, Safety, existing Phrasebook, Memories, Heritage, Language, AI architecture, Settings, navigation) was modified beyond what this phase's own scope required, and no further phase was started.
+
+---
+
+# Gemini Integration Certification (2026-09-06)
+
+**Not a new phase.** No new feature was built and no phase was started. A paid `GEMINI_API_KEY` was configured in `backend/.env` for the first time, and the task was to make the EXISTING Gemini integration work correctly and securely against the real API. Configuring the key executed AI code paths that had never run before in this project, which surfaced four real, pre-existing defects — all fixed here.
+
+## Objective
+
+Verify and correct the existing Gemini integration end-to-end: `ChatScreen` → `mobile/src/api/trips.ts` → `POST /v1/trips/{id}/itinerary/modify` → `modification_service` → `LLMGateway` → `GeminiAdapter` → Google GenAI SDK → Gemini API, with real authentication, real persistence, and no key exposure.
+
+## Architecture — unchanged
+
+No second AI architecture was created. The existing `LLMGateway` protocol / `GeminiAdapter` / `get_llm_gateway()` factory (AI_ARCHITECTURE.md §1, CLAUDE.md §8) was already correct and was reused as-is. `GeminiAdapter` remains the only module importing `google.genai`; the factory remains the only place the key is read. No new dependency was added. No database schema change was made. Auth, Supabase, maps, Geoapify and weather were not touched.
+
+## Requirements Implemented — COMPLETE
+
+| Item | Status |
+|---|---|
+| `GEMINI_API_KEY` loaded from backend environment only, as `SecretStr` | **COMPLETE** |
+| Real Gemini connectivity through the existing adapter | **COMPLETE** |
+| Safe startup log (`gemini_configured=YES`, never the key) | **COMPLETE** |
+| Itinerary modification working end-to-end on the three required prompts | **COMPLETE** |
+| Multi-turn conversation context (AI_ARCHITECTURE.md §4 step 1) | **COMPLETE** — was NOT IMPLEMENTED before |
+| Traveller profile in the modification prompt | **COMPLETE** — was NOT IMPLEMENTED before |
+| Key never in client bundle, git, logs, or API responses | **COMPLETE** |
+
+## Defects Found by Running the Real Integration (all pre-existing, all fixed)
+
+1. **Multi-turn context was never loaded.** `AiConversationsRepository.get_recent_messages()` existed with **zero callers**, so AI_ARCHITECTURE.md §4 step 1 was unimplemented. When the model asked a clarifying question (FR-004's documented alternate flow), the traveller's answer arrived with no memory of the question — an unbreakable clarification loop in `ChatScreen`. Prior turns are now replayed as real user/assistant messages, capped at 10, never opening on an assistant turn.
+2. **The traveller's profile never reached the prompt.** "Add one historical place that matches my interests" was unanswerable — the model could only ask for clarification. Verified against the real API: identical prompt and itinerary, adding only the profile block moved the response from `clarification_needed=true, 0 changes` to a correct scoped diff.
+3. **`TypeError` (HTTP 500) whenever a stop was moved on a day holding two or more items.** `_introduces_new_conflict` sorted raw `planned_start` values, mixing `datetime.time` (from asyncpg) with the model's `"HH:MM"` string, which are not orderable. Additionally `business_rules._parse_hm` silently returned `None` for `datetime.time`, so the deterministic overlap/travel-time validator that AI_ARCHITECTURE.md §4 step 3-4 calls "the source of truth for is this allowed" was a **no-op on the whole F5 path**. Both fixed; the parser change is purely widening.
+4. **`POST /v1/trips/{id}/notes` returned 500, and the fix exposed a second bug behind it.** `update_note_parsed` called `uuid.UUID()` on a value asyncpg returns as a `UUID` object (`AttributeError`), and — once that was fixed — `json.dumps()`-ed a value the pool's jsonb codec already encodes, storing a JSON *string* so `GET /notes` failed schema validation. This is the same double-encoding class already documented for budget/disruption/group/notifications. Both fixed; F4 idea extraction now round-trips real Gemini output.
+
+## Files Modified
+
+- `backend/app/services/modification_service.py` — history replay, traveller-profile block, orderable conflict-check sort
+- `backend/app/services/business_rules.py` — `_parse_hm` accepts `datetime.time`; new public `minutes_since_midnight`
+- `backend/app/repositories/trips_repository.py` — `update_note_parsed` UUID coercion + jsonb double-encoding fix
+- `backend/app/main.py` — safe `ai_provider_configured` startup log
+- `backend/tests/test_llm_gateway_live.py` — grounding assertion no longer hardcodes "Taj Mahal is the only Agra POI seeded" (untrue since the Phase 8 heritage seed); asserts membership in the live candidate set
+- `backend/tests/test_business_rules.py` — extended with 5 time-parsing tests
+- `docs/AI_ARCHITECTURE.md` — §4 step 1 documents the profile block and the message-replay shape
+
+## Files Created
+
+- `backend/tests/test_modification_service.py` — 8 tests covering history replay, no duplicate current turn, no leading assistant turn, profile block, and both conflict-check regressions
+
+## Database / API / UI Changes
+
+**None.** No migration, no schema change, no endpoint contract change, no mobile source change. The `ModifyItineraryResult` shape the mobile client expects is unchanged.
+
+## Tests Executed
+
+- **Backend full live suite** (`scripts/run_live_tests.py tests/`, real Supabase + real paid Gemini key): **367 passed, 0 failed, 6 skipped.** Before these fixes the same suite ran **4 failed, 356 passed**. All 6 skips are self-documenting and correct: they are the "no AI provider configured" degraded-path tests (`test_heritage_api.py` ×2, `test_speech_translation_api.py`, `test_translation_api.py`, `test_trips_api.py` ×2), whose own premise no longer holds now that a real key is configured — each names `test_llm_gateway_live.py` as its real-key equivalent, and those equivalents all pass.
+- **Backend unit suite** (no network): **141 passed, 225 skipped**, up from 135 (the 6 new tests).
+- **Mutation-verified**: each new regression test was confirmed to FAIL against the pre-fix code, then pass after — not merely asserted green.
+- `ruff check` clean; `ruff format --check` clean on every file touched; `mypy` clean on every file touched (the two pre-existing `gemini_adapter.py` SDK-union errors are unchanged and were not introduced here).
+- **Mobile**: `tsc --noEmit` clean, `expo lint` clean, **187/187 Jest tests passed** across 33 suites — unchanged, since no mobile file was modified.
+- **Live end-to-end certification** over real HTTP against a running uvicorn server with a real Supabase access token: real onboarding → trip → Gemini itinerary generation (`succeeded`, not degraded) → all three required prompts carried to a resolved outcome → changes re-read from the database → cross-user isolation (403) → error paths (401/404/400).
+
+### The three required prompts, live
+
+| Prompt | Result |
+|---|---|
+| "Make my itinerary more relaxed." | One clarifying question, then on the answer **2 items rescheduled and persisted** |
+| "Add one historical place that matches my interests." | **Applied directly**, reply citing "your interest in heritage and history" |
+| "Move the outdoor activity to a better time based on the current weather." | One clarifying question, then on the answer **1 item moved to 08:00 and persisted** |
+
+Every reply was genuinely Gemini-generated (`gemini-flash-latest`, `finish_reason=STOP`, real token counts, never the degraded fallback string).
+
+## Security Validation
+
+- Key read only via `Settings.gemini_api_key` (`SecretStr`, `repr` = `**********`) from `backend/.env`; never hardcoded.
+- **Full working tree scanned** for the literal key value: present in `backend/.env` only. **Full git history scanned across all 8 commits: zero hits.** `git check-ignore` confirms `.env`, `backend/.env` and `mobile/.env` are all ignored; only `*.env.example` files are tracked.
+- Key absent from `mobile/.env`, `mobile/.env.example`, `mobile/app.config.js` and all mobile source — only `EXPO_PUBLIC_*` variables reach the client bundle.
+- Every API response body and error envelope produced during certification was scanned for the key: never present. `GeminiAdapter` normalizes every SDK error to a typed `LLMProviderError` with hardcoded messages and logs status codes only.
+- All runtime logs (server, test, task logs) scanned: no occurrence.
+- No change to authentication, RLS, or authorization. Cross-user modification still correctly returns 403; identity still derived solely from the verified token.
+
+## Known Limitations
+
+1. **POI coverage is thin for the modification path.** `PoisRepository.search_text` returns only 3 rows for Agra — and two are duplicate "Taj Mahal" entries — 3 for Delhi, 1 for Jaipur. The model correctly refuses to invent venues (system-prompt rule 2), so "add a historical place" can only offer what is seeded; during certification it added a second Taj Mahal stop because nothing else existed. This is a **seed-data limitation, not an AI or integration defect**, and it caps the usefulness of "add a place" requests until the POI table is expanded and de-duplicated.
+2. **Weather is deliberately not in the modification prompt.** The F5 system prompt explicitly tells the model it is not shown weather, because a separate deterministic system owns that (F21). A "based on the current weather" request is therefore resolved by rescheduling on the traveller's answer, not by the model reading a forecast. This is the documented design, unchanged here.
+3. Aggressive rate limiting was still observed on `gemini-flash-latest` during rapid back-to-back calls; the live suite's existing 20s inter-test pacing remains necessary.
+
+## Unresolved Issues
+
+1. **`personalization_profile.preference_weights` is double-encoded in the live database** — it reads back as `str`, not `dict`. `personalization_service.get_personalization_context()` guards with `isinstance(weights, dict)` and returns `None`, so **Travel DNA is silently never injected into itinerary-generation prompts**. Same root cause as defect 4 above (`personalization_repository.py:48` pre-`json.dumps()`es a value the jsonb codec already encodes). **NOT fixed here**: it is outside the itinerary-modification scope of this task, and correcting it also requires deciding what to do with already-corrupted existing rows. `weather_repository.py:43` and `ai_conversations_repository.py:111` use the same pattern and should be checked at the same time (both columns were empty at inspection time, so neither is confirmed). Recommended as a small, focused follow-up with explicit authorization.
+2. Eight pre-existing files fail `ruff format --check` (implicit string-concatenation style): `disruption_repository.py`, `onboarding_repository.py`, `ai/prompts/personalization.py`, and five test files. Untouched here to avoid unrelated churn.
+3. The two `gemini_adapter.py` `mypy` errors remain — over-broad union types in the Google SDK's own signatures, not a defect in this code.
+
+## Environment Variables Required
+
+`GEMINI_API_KEY` — **now configured and verified working** against the real API. `WEATHER_API_KEY`, SMTP and SMS remain unconfigured, exactly as before.
+
+## Next Phase Dependencies
+
+None. No phase was started and none should be without explicit authorization.
+
+---
+
+## STOP
+
+The existing Gemini integration is certified working end-to-end against the real paid API: the key is loaded only from the backend environment and never leaves it, and conversational itinerary modification genuinely reaches Gemini, applies validated scoped diffs, persists them, and returns them in the exact shape the mobile client already consumes. Four pre-existing defects that only became reachable once a real key was configured were found by running the real path, root-caused, fixed, and covered by mutation-verified regression tests, taking the full live suite from 4 failures to 367 passing. One genuine unrelated defect (the personalization jsonb double-encoding) was found, documented with evidence, and deliberately left unfixed pending authorization rather than silently expanding scope.

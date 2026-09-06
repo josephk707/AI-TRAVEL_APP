@@ -3,7 +3,12 @@
  */
 
 import { apiGet, apiPost } from "./client";
-import type { BudgetBracket, Pace, TravelStyle } from "../onboarding/onboardingOptions";
+import type {
+  BudgetBracket,
+  Pace,
+  TravelCompanion,
+  TravelStyle,
+} from "../onboarding/onboardingOptions";
 
 export interface InterestOption {
   id: number;
@@ -18,6 +23,8 @@ export interface OnboardingResponseData {
   travel_style: TravelStyle | null;
   pace: Pace | null;
   budget_bracket: BudgetBracket | null;
+  travel_companion: TravelCompanion | null;
+  trip_motivation: string | null;
 }
 
 export interface OnboardingStatus {
@@ -45,6 +52,8 @@ export interface SubmitOnboardingResponsesInput {
   travel_style?: TravelStyle | null;
   pace?: Pace | null;
   budget_bracket?: BudgetBracket | null;
+  travel_companion?: TravelCompanion | null;
+  trip_motivation?: string;
 }
 
 export interface SubmitOnboardingResponsesResult {

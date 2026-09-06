@@ -24,6 +24,7 @@ import {
   type GenerateItineraryResult,
 } from "../api/trips";
 import { ChatBubble } from "../components/ChatBubble";
+import { GradientBackground } from "../components/GradientBackground";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -176,12 +177,13 @@ export function ChatScreen(): React.JSX.Element {
   }, [messages]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={80}
-    >
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={80}
+      >
+      <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Trip planner</Text>
         {hasItinerary && (
@@ -273,12 +275,13 @@ export function ChatScreen(): React.JSX.Element {
           <Text style={styles.sendButtonText}>{sending ? "…" : "Send"}</Text>
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -310,7 +313,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     padding: spacing.sm,
     color: colors.text,

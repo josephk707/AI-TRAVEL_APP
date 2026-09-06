@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import React, { useCallback, useEffect, useState } from "react";
+import * as Location from "expo-location";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Pressable,
@@ -10,17 +11,22 @@ import {
   TextInput,
   View,
 } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Poi, PoiCategory } from "../api/pois";
 import { ApiError } from "../api/client";
-import { searchPois } from "../api/pois";
+import { fetchNearbyPois, searchPois } from "../api/pois";
+import { BottomNavBar } from "../components/BottomNavBar";
+import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
 import { MapErrorBoundary } from "../components/MapErrorBoundary";
+import { MapView, Marker, PROVIDER_GOOGLE } from "../components/PlatformMap";
 import { PoiCard } from "../components/PoiCard";
 import { SelectableChip } from "../components/SelectableChip";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -29,14 +35,6 @@ type LoadState =
   | { status: "loading" }
   | { status: "success"; pois: Poi[]; degraded: boolean; message: string | null }
   | { status: "error"; message: string };
-
-const CATEGORY_FILTERS: { value: PoiCategory; label: string }[] = [
-  { value: "heritage", label: "Heritage" },
-  { value: "restaurant", label: "Food & Drink" },
-  { value: "attraction", label: "Attraction" },
-  { value: "nature", label: "Nature" },
-  { value: "shopping", label: "Shopping" },
-];
 
 // India-wide default map framing (this product's launch region — see
 // DATABASE_SCHEMA.md's `pois.country default 'India'`) — used only until
@@ -61,10 +59,20 @@ export function ExploreScreen(): React.JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList, "Explore">>();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+  const CATEGORY_FILTERS: { value: PoiCategory; label: string }[] = [
+    { value: "heritage", label: t("explore.categoryHeritage") },
+    { value: "restaurant", label: t("explore.categoryFood") },
+    { value: "attraction", label: t("explore.categoryAttraction") },
+    { value: "nature", label: t("explore.categoryNature") },
+    { value: "shopping", label: t("explore.categoryShopping") },
+  ];
   const [queryText, setQueryText] = useState("");
   const [category, setCategory] = useState<PoiCategory | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
+  const [locating, setLocating] = useState(false);
+  const lastActionRef = useRef<"search" | "locate">("search");
 
   // Resolves the next LoadState without setting state itself, so the
   // category-change effect below can set state only inside a .then()
@@ -111,6 +119,7 @@ export function ExploreScreen(): React.JSX.Element {
   }, [category]);
 
   const handleSubmit = useCallback(() => {
+    lastActionRef.current = "search";
     if (!queryText.trim()) {
       setLoadState({ status: "idle" });
       return;
@@ -123,6 +132,44 @@ export function ExploreScreen(): React.JSX.Element {
     setCategory((current) => (current === value ? null : value));
   }, []);
 
+  // Maps Integration phase — real device location, feeding the existing
+  // GET /v1/pois/nearby endpoint (now live-augmented via Geoapify Places
+  // when the cache is sparse). Reuses the exact same "success" render
+  // path as a text search — real markers/cards, no new UI needed.
+  const locateNearby = useCallback(async () => {
+    lastActionRef.current = "locate";
+    setQueryText("");
+    setLocating(true);
+    setLoadState({ status: "loading" });
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setLoadState({ status: "error", message: t("explore.locationDenied") });
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({});
+      const result = await fetchNearbyPois({
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        radiusM: 5000,
+        category: category ?? undefined,
+      });
+      setLoadState({
+        status: "success",
+        pois: result.pois,
+        degraded: result.degraded,
+        message: result.message,
+      });
+    } catch (error) {
+      setLoadState({
+        status: "error",
+        message: error instanceof ApiError ? error.message : t("explore.couldntGetLocation"),
+      });
+    } finally {
+      setLocating(false);
+    }
+  }, [category, t]);
+
   const openDetail = useCallback(
     (poiId: string) => {
       navigation.navigate("PoiDetail", { poiId });
@@ -133,18 +180,19 @@ export function ExploreScreen(): React.JSX.Element {
   const results = loadState.status === "success" ? loadState.pois : [];
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
+      <StatusBar style="light" />
 
       <View style={styles.header}>
-        <Text style={styles.title}>Explore places</Text>
+        <Text style={styles.title}>{t("explore.title")}</Text>
         <View style={styles.searchRow}>
           <View style={styles.searchInputWrapper}>
             <Ionicons name="search" size={18} color={colors.textMuted} />
             <TextInput
               testID="explore-search-input"
               style={styles.searchInput}
-              placeholder="Search heritage sites, restaurants, markets…"
+              placeholder={t("explore.searchPlaceholder")}
               placeholderTextColor={colors.textMuted}
               value={queryText}
               onChangeText={setQueryText}
@@ -152,6 +200,15 @@ export function ExploreScreen(): React.JSX.Element {
               returnKeyType="search"
             />
           </View>
+          <Pressable
+            testID="explore-locate-button"
+            style={styles.viewToggle}
+            accessibilityRole="button"
+            accessibilityLabel={t("explore.useMyLocation")}
+            onPress={() => void locateNearby()}
+          >
+            <Ionicons name="locate" size={20} color={colors.primaryText} />
+          </Pressable>
           <Pressable
             testID="explore-view-toggle"
             style={styles.viewToggle}
@@ -185,35 +242,33 @@ export function ExploreScreen(): React.JSX.Element {
 
       {loadState.status === "idle" && (
         <View style={styles.centerFill} testID="explore-empty-prompt">
-          <Ionicons name="compass-outline" size={40} color={colors.textMuted} />
-          <Text style={styles.emptyText}>Search to discover places for your trip.</Text>
+          <EmptyState icon="compass-outline" title={t("explore.emptyPrompt")} />
         </View>
       )}
 
       {loadState.status === "loading" && (
         <View style={styles.centerFill}>
-          <LoadingView label="Searching…" />
+          <LoadingView label={locating ? t("explore.locatingYou") : t("explore.searching")} />
         </View>
       )}
 
       {loadState.status === "error" && (
         <View style={styles.centerFill} testID="explore-error">
-          <Text style={styles.errorText}>{loadState.message}</Text>
-          <Pressable
-            style={styles.retryButton}
-            onPress={handleSubmit}
+          <ErrorState
+            message={loadState.message}
+            retryLabel={t("common.retry")}
+            onRetry={() => {
+              if (lastActionRef.current === "locate") void locateNearby();
+              else handleSubmit();
+            }}
             testID="explore-retry-button"
-            accessibilityRole="button"
-          >
-            <Text style={styles.retryLabel}>Retry</Text>
-          </Pressable>
+          />
         </View>
       )}
 
       {loadState.status === "success" && results.length === 0 && (
         <View style={styles.centerFill} testID="explore-no-results">
-          <Ionicons name="search-outline" size={40} color={colors.textMuted} />
-          <Text style={styles.emptyText}>No places found. Try a different search.</Text>
+          <EmptyState icon="search-outline" title={t("explore.noResults")} />
         </View>
       )}
 
@@ -286,12 +341,14 @@ export function ExploreScreen(): React.JSX.Element {
           )}
         </>
       )}
-    </View>
+      </View>
+      <BottomNavBar active="Explore" />
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, gap: spacing.sm },
   title: { ...typography.title, color: colors.text },
   searchRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center" },
@@ -323,17 +380,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.xl,
   },
-  emptyText: { ...typography.body, color: colors.textMuted, textAlign: "center" },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  retryButton: {
-    marginTop: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-  },
-  retryLabel: { ...typography.body, color: colors.primaryText, fontWeight: "600" },
-  listContent: { padding: spacing.lg, gap: spacing.sm },
+  listContent: { padding: spacing.lg, gap: spacing.sm, paddingBottom: spacing.xxl },
   map: { flex: 1 },
   degradedBanner: {
     flexDirection: "row",
@@ -343,7 +390,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     padding: spacing.sm,
     borderRadius: radius.md,
-    backgroundColor: "#FFF6E0",
+    backgroundColor: colors.warningSoft,
   },
   degradedText: { ...typography.caption, color: colors.text, flexShrink: 1 },
 });

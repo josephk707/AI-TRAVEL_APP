@@ -2,14 +2,19 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, StyleSheet, Text, View } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import { listTrips, Trip } from "../api/trips";
+import { BottomNavBar } from "../components/BottomNavBar";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
 import { TripCard } from "../components/TripCard";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, spacing, typography } from "../theme/tokens";
 
@@ -31,6 +36,8 @@ const STATUS_ORDER: Record<Trip["status"], number> = {
 export function TripsListScreen(): React.JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList, "TripsList">>();
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   const load = useCallback(() => {
@@ -41,10 +48,10 @@ export function TripsListScreen(): React.JSX.Element {
         setState({ status: "success", trips: sorted });
       })
       .catch((error: unknown) => {
-        const message = error instanceof ApiError ? error.message : "Couldn't load your trips.";
+        const message = error instanceof ApiError ? error.message : t("trips.couldntLoad");
         setState({ status: "error", message });
       });
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", load);
@@ -52,33 +59,30 @@ export function TripsListScreen(): React.JSX.Element {
   }, [navigation, load]);
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={[styles.container, { paddingTop: insets.top + spacing.sm }]}>
+      <StatusBar style="light" />
       <View style={styles.header}>
-        <Text style={styles.title}>Your trips</Text>
+        <Text style={styles.title}>{t("trips.title")}</Text>
         <Button
-          label="+ New trip"
+          label={`+ ${t("trips.newTrip")}`}
           onPress={() => navigation.navigate("TripCreation")}
           testID="new-trip-button"
+          fullWidth={false}
         />
       </View>
 
-      {state.status === "loading" && <LoadingView label="Loading your trips…" />}
+      {state.status === "loading" && <LoadingView label={t("trips.loading")} />}
 
       {state.status === "error" && (
         <View style={styles.centered} testID="trips-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="trips-retry-button" />
+          <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={load} testID="trips-retry-button" />
         </View>
       )}
 
       {state.status === "success" && state.trips.length === 0 && (
         <View style={styles.centered} testID="trips-empty">
-          <Ionicons name="map-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>No trips yet</Text>
-          <Text style={styles.emptySubtitle}>
-            Start a new trip and let Yatra AI plan it with you.
-          </Text>
+          <EmptyState icon="map-outline" title={t("trips.emptyTitle")} message={t("trips.emptySubtitle")} />
         </View>
       )}
 
@@ -101,12 +105,14 @@ export function TripsListScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+      <BottomNavBar active="TripsList" />
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -114,9 +120,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   title: { ...typography.title, color: colors.text },
-  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
+  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm, paddingBottom: spacing.xxl },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  emptyTitle: { ...typography.subtitle, color: colors.text, marginTop: spacing.sm },
-  emptySubtitle: { ...typography.body, color: colors.textMuted, textAlign: "center" },
 });

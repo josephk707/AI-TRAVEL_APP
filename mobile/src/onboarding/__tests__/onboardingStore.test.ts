@@ -22,6 +22,8 @@ describe("useOnboardingStore", () => {
     expect(result.current.travelStyle).toBeNull();
     expect(result.current.pace).toBeNull();
     expect(result.current.budgetBracket).toBeNull();
+    expect(result.current.travelCompanion).toBeNull();
+    expect(result.current.tripMotivation).toBe("");
   });
 
   it("toggleInterest adds an id, then removes it on a second toggle", async () => {
@@ -50,6 +52,14 @@ describe("useOnboardingStore", () => {
 
     await act(async () => result.current.setBudgetBracket("premium"));
     expect(result.current.budgetBracket).toBe("premium");
+
+    await act(async () => result.current.setTravelCompanion("solo"));
+    expect(result.current.travelCompanion).toBe("solo");
+    await act(async () => result.current.setTravelCompanion("family"));
+    expect(result.current.travelCompanion).toBe("family");
+
+    await act(async () => result.current.setTripMotivation("Trying local food"));
+    expect(result.current.tripMotivation).toBe("Trying local food");
   });
 
   it("reset() clears every answer back to the initial empty state", async () => {
@@ -60,6 +70,8 @@ describe("useOnboardingStore", () => {
       result.current.setTravelStyle("flexible");
       result.current.setPace("relaxed");
       result.current.setBudgetBracket("budget");
+      result.current.setTravelCompanion("couple");
+      result.current.setTripMotivation("Slow mornings");
     });
     expect(result.current.interestIds).toEqual([1]);
 
@@ -69,5 +81,7 @@ describe("useOnboardingStore", () => {
     expect(result.current.travelStyle).toBeNull();
     expect(result.current.pace).toBeNull();
     expect(result.current.budgetBracket).toBeNull();
+    expect(result.current.travelCompanion).toBeNull();
+    expect(result.current.tripMotivation).toBe("");
   });
 });

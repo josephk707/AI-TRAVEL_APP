@@ -6,6 +6,7 @@ import { addFavorite, listFavorites, removeFavorite } from "../../api/collection
 import { fetchPoi } from "../../api/pois";
 import { createReview, listPoiReviews } from "../../api/reviews";
 import { listTrips } from "../../api/trips";
+import { fetchWeather } from "../../api/weather";
 import { PoiDetailScreen } from "../PoiDetailScreen";
 
 jest.mock("../../api/pois", () => ({
@@ -27,6 +28,18 @@ jest.mock("../../api/trips", () => ({
   listTrips: jest.fn(),
 }));
 
+jest.mock("../../api/weather", () => ({
+  fetchWeather: jest.fn(),
+}));
+
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  return { useTranslation: () => ({ t }) };
+});
+
 const mockFetchPoi = fetchPoi as jest.Mock;
 const mockListFavorites = listFavorites as jest.Mock;
 const mockAddFavorite = addFavorite as jest.Mock;
@@ -34,6 +47,7 @@ const mockRemoveFavorite = removeFavorite as jest.Mock;
 const mockListPoiReviews = listPoiReviews as jest.Mock;
 const mockCreateReview = createReview as jest.Mock;
 const mockListTrips = listTrips as jest.Mock;
+const mockFetchWeather = fetchWeather as jest.Mock;
 
 const mockNavigate = jest.fn();
 jest.mock("@react-navigation/native", () => ({
@@ -64,6 +78,28 @@ describe("PoiDetailScreen", () => {
     mockListFavorites.mockResolvedValue([]);
     mockListPoiReviews.mockResolvedValue([]);
     mockListTrips.mockResolvedValue([]);
+    mockFetchWeather.mockResolvedValue({
+      lat: 27.1751,
+      lng: 78.0421,
+      current: {
+        temperature_c: 34.2,
+        condition_code: 1,
+        condition: "Mainly clear",
+        humidity_percent: 40,
+        wind_speed_kmh: 12,
+        is_day: true,
+      },
+      daily: [
+        {
+          date: "2026-08-28",
+          temperature_max_c: 36,
+          temperature_min_c: 28,
+          condition_code: 1,
+          condition: "Mainly clear",
+          precipitation_probability_percent: 5,
+        },
+      ],
+    });
   });
 
   afterEach(() => jest.clearAllMocks());
@@ -279,5 +315,31 @@ describe("PoiDetailScreen", () => {
     await waitFor(() =>
       expect(mockCreateReview).toHaveBeenCalledWith(TAJ_MAHAL.id, "trip-1", 4, undefined),
     );
+  });
+
+  // -------------------------------------------------------------------
+  // Maps Integration phase — real Open-Meteo weather for this place
+  // -------------------------------------------------------------------
+  it("fetches and shows the real weather for this place's coordinates", async () => {
+    mockFetchPoi.mockResolvedValue(TAJ_MAHAL);
+
+    await render(<PoiDetailScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("weather-card")).toBeTruthy());
+    expect(mockFetchWeather).toHaveBeenCalledWith(TAJ_MAHAL.location.lat, TAJ_MAHAL.location.lng);
+    expect(screen.getByText("34°C")).toBeTruthy();
+    expect(screen.getByText("Mainly clear")).toBeTruthy();
+  });
+
+  it("shows a typed error inside the weather card without blocking the rest of the screen", async () => {
+    mockFetchPoi.mockResolvedValue(TAJ_MAHAL);
+    mockFetchWeather.mockRejectedValue(new ApiError(503, "Weather is temporarily unavailable."));
+
+    await render(<PoiDetailScreen />);
+
+    await waitFor(() => expect(screen.getByTestId("weather-error")).toBeTruthy());
+    expect(screen.getByText("Weather is temporarily unavailable.")).toBeTruthy();
+    // The rest of the screen still renders normally.
+    expect(screen.getByText("Taj Mahal")).toBeTruthy();
   });
 });

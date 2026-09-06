@@ -10,6 +10,7 @@ import { BudgetViewScreen } from "../BudgetViewScreen";
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useRoute: () => ({ params: { tripId: "trip-1" } }),
+  useNavigation: () => ({ goBack: jest.fn() }),
 }));
 
 jest.mock("../../api/budget", () => ({

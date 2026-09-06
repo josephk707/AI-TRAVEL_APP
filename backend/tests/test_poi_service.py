@@ -16,6 +16,7 @@ from pydantic import SecretStr
 
 from app.schemas.poi import PoiNearbyQuery, PoiSearchQuery
 from app.services import poi_service
+from app.services.geoapify_places_client import GeoapifyPlacesClient
 from app.services.google_places_client import GooglePlacesClient, PlacesProviderError
 
 
@@ -254,18 +255,163 @@ async def test_search_skips_live_results_already_present_in_the_cache(
     assert len(results) == 1
 
 
-async def test_nearby_returns_mapped_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_nearby_returns_mapped_rows_without_live_call_when_cache_has_enough(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def fake_search_nearby(self, lat, lng, radius_m, category, limit=20):  # noqa: ANN001
-        return [dict(_CACHED_ROW)]
+        return [dict(_CACHED_ROW) for _ in range(poi_service._LIVE_AUGMENT_THRESHOLD)]
 
     monkeypatch.setattr(
         "app.repositories.pois_repository.PoisRepository.search_nearby", fake_search_nearby
     )
 
-    results = await poi_service.nearby(PoiNearbyQuery(lat=27.17, lng=78.04))
+    def explode(*args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+        raise AssertionError("live provider must not be called when cache already has enough")
 
-    assert len(results) == 1
+    monkeypatch.setattr(poi_service, "GeoapifyPlacesClient", explode)
+
+    results, degraded = await poi_service.nearby(PoiNearbyQuery(lat=27.17, lng=78.04))
+
+    assert degraded is False
+    assert len(results) == poi_service._LIVE_AUGMENT_THRESHOLD
     assert results[0]["location"] == {"lat": 27.17, "lng": 78.04}
+
+
+def _patch_geoapify_settings(monkeypatch: pytest.MonkeyPatch, api_key: str | None) -> None:
+    fake_settings = SimpleNamespace(geoapify_api_key=SecretStr(api_key) if api_key else None)
+    monkeypatch.setattr(poi_service, "get_settings", lambda: fake_settings)
+
+
+def _valid_raw_geoapify_place(**overrides: object) -> dict:
+    props = {
+        "place_id": "geo_valid",
+        "name": "Valid Geoapify Place",
+        "lat": 27.17,
+        "lon": 78.04,
+        "formatted": "1 Real St",
+        "city": "Agra",
+        "state": "Uttar Pradesh",
+        "categories": ["tourism", "tourism.sights"],
+    }
+    props.update(overrides)
+    return {"type": "Feature", "properties": props}
+
+
+def test_validate_and_map_geoapify_place_extracts_expected_fields() -> None:
+    mapped = poi_service._validate_and_map_geoapify_place(_valid_raw_geoapify_place())
+
+    assert mapped is not None
+    assert mapped["name"] == "Valid Geoapify Place"
+    assert mapped["category"] == "heritage"
+    assert mapped["lat"] == 27.17
+    assert mapped["lng"] == 78.04
+    assert mapped["city"] == "Agra"
+    assert mapped["region"] == "Uttar Pradesh"
+    assert mapped["external_ref"] == "geo_valid"
+    assert mapped["opening_hours"] is None
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"place_id": None},
+        {"name": None},
+        {"lat": None},
+        {"lat": 999},
+        {"lon": -999},
+    ],
+)
+def test_validate_and_map_geoapify_place_rejects_incomplete_or_invalid_data(
+    overrides: dict,
+) -> None:
+    assert (
+        poi_service._validate_and_map_geoapify_place(_valid_raw_geoapify_place(**overrides)) is None
+    )
+
+
+def test_validate_and_map_geoapify_place_rejects_a_response_with_no_properties() -> None:
+    assert poi_service._validate_and_map_geoapify_place({"type": "Feature"}) is None
+
+
+def test_map_geoapify_category_prefers_the_most_specific_matching_type() -> None:
+    assert poi_service._map_geoapify_category(["tourism", "catering.restaurant"]) == "restaurant"
+    assert poi_service._map_geoapify_category(["tourism.sights"]) == "heritage"
+    assert poi_service._map_geoapify_category(["natural"]) == "nature"
+    assert poi_service._map_geoapify_category(["commercial.shopping_mall"]) == "shopping"
+    assert poi_service._map_geoapify_category(["tourism"]) == "attraction"
+    assert poi_service._map_geoapify_category(["some_unknown_type"]) == "other"
+
+
+async def test_nearby_degrades_when_geoapify_not_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_search_nearby(self, lat, lng, radius_m, category, limit=20):  # noqa: ANN001
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.pois_repository.PoisRepository.search_nearby", fake_search_nearby
+    )
+    _patch_geoapify_settings(monkeypatch, api_key=None)
+
+    results, degraded = await poi_service.nearby(PoiNearbyQuery(lat=27.17, lng=78.04))
+
+    assert results == []
+    assert degraded is True
+
+
+async def test_nearby_degrades_when_geoapify_call_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_search_nearby(self, lat, lng, radius_m, category, limit=20):  # noqa: ANN001
+        return []
+
+    monkeypatch.setattr(
+        "app.repositories.pois_repository.PoisRepository.search_nearby", fake_search_nearby
+    )
+    _patch_geoapify_settings(monkeypatch, api_key="fake-key")
+
+    async def failing_live_search(
+        self, lat, lng, radius_m, category=None, limit=20
+    ):  # noqa: ANN001
+        raise PlacesProviderError("simulated provider outage")
+
+    monkeypatch.setattr(GeoapifyPlacesClient, "search_nearby", failing_live_search)
+
+    results, degraded = await poi_service.nearby(PoiNearbyQuery(lat=27.17, lng=78.04))
+
+    assert results == []
+    assert degraded is True
+
+
+async def test_nearby_merges_and_caches_new_live_discoveries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_search_nearby(self, lat, lng, radius_m, category, limit=20):  # noqa: ANN001
+        return []
+
+    upserted: list[dict] = []
+
+    async def fake_upsert(self, poi):  # noqa: ANN001
+        upserted.append(poi)
+        return {**_CACHED_ROW, "external_ref": poi["external_ref"], "source": "places_api"}
+
+    monkeypatch.setattr(
+        "app.repositories.pois_repository.PoisRepository.search_nearby", fake_search_nearby
+    )
+    monkeypatch.setattr(
+        "app.repositories.pois_repository.PoisRepository.upsert_from_places_api", fake_upsert
+    )
+    _patch_geoapify_settings(monkeypatch, api_key="fake-key")
+
+    async def fake_live_search(self, lat, lng, radius_m, category=None, limit=20):  # noqa: ANN001
+        return [_valid_raw_geoapify_place(place_id="geo_new_discovery")]
+
+    monkeypatch.setattr(GeoapifyPlacesClient, "search_nearby", fake_live_search)
+
+    results, degraded = await poi_service.nearby(PoiNearbyQuery(lat=27.17, lng=78.04))
+
+    assert degraded is False
+    assert len(results) == 1
+    assert len(upserted) == 1
+    assert upserted[0]["external_ref"] == "geo_new_discovery"
 
 
 async def test_get_by_id_raises_not_found_for_a_missing_poi(

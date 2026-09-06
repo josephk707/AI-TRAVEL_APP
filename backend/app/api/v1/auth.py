@@ -13,7 +13,12 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_bearer_token, get_current_user
 from app.core.security import AuthenticatedUser
-from app.schemas.auth import BootstrapResponse, LogoutResponse, ProfileResponse
+from app.schemas.auth import (
+    BootstrapResponse,
+    LogoutResponse,
+    ProfileResponse,
+    UpdateProfileRequest,
+)
 from app.schemas.common import Envelope
 from app.services import auth_service
 
@@ -40,6 +45,19 @@ async def get_me(user: AuthenticatedUser = Depends(get_current_user)) -> Envelop
     end by returning the caller's own profile, scoped by the verified
     token's subject — never by a client-supplied id."""
     profile = await auth_service.get_profile(user)
+    return Envelope(data=ProfileResponse.model_validate(profile))
+
+
+@router.patch("/me", response_model=Envelope[ProfileResponse])
+async def update_me(
+    body: UpdateProfileRequest,
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> Envelope[ProfileResponse]:
+    """Language-settings phase — the mobile Language Settings screen calls
+    this to persist the caller's UI-language preference server-side (so it
+    survives reinstall/new-device login, not just this device's local
+    storage). Scoped to `preferred_language` only, see UpdateProfileRequest."""
+    profile = await auth_service.update_preferred_language(user, body.preferred_language)
     return Envelope(data=ProfileResponse.model_validate(profile))
 
 

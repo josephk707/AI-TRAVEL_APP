@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import {
@@ -23,7 +24,11 @@ import {
 } from "../api/location";
 import { fetchItinerary, ItineraryItem } from "../api/trips";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -42,6 +47,7 @@ const WATCH_INTERVAL_MS = 60_000;
 export function OnTripCompanionScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "OnTripCompanion">>();
   const { tripId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [consent, setConsentState] = useState(false);
@@ -218,11 +224,10 @@ export function OnTripCompanionScreen(): React.JSX.Element {
   );
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>On-trip companion</Text>
-      </View>
+    <GradientBackground>
+      <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
+      <StatusBar style="light" />
+      <ScreenHeader title="On-trip companion" />
 
       <View style={styles.consentRow} testID="location-consent-row">
         <View style={styles.consentTextGroup}>
@@ -310,14 +315,18 @@ export function OnTripCompanionScreen(): React.JSX.Element {
 
       {state.status === "error" && (
         <View style={styles.centered} testID="on-trip-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="on-trip-retry-button" />
+          <ErrorState
+            message={state.message}
+            retryLabel="Retry"
+            onRetry={load}
+            testID="on-trip-retry-button"
+          />
         </View>
       )}
 
       {state.status === "success" && state.items.length === 0 && (
         <View style={styles.centered} testID="on-trip-empty">
-          <Text style={styles.emptyText}>Every stop on this trip is complete.</Text>
+          <EmptyState icon="checkmark-done-outline" title="Every stop on this trip is complete." />
         </View>
       )}
 
@@ -340,12 +349,13 @@ export function OnTripCompanionScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   header: { padding: spacing.lg, paddingBottom: spacing.sm },
   title: { ...typography.title, color: colors.text },
   consentRow: {
@@ -370,7 +380,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
-    backgroundColor: "#E3F5EC",
+    backgroundColor: colors.successSoft,
     borderRadius: radius.sm,
     padding: spacing.sm,
   },
@@ -388,7 +398,7 @@ const styles = StyleSheet.create({
   disruptionCard: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.sm,
-    backgroundColor: "#FDF3D8",
+    backgroundColor: colors.warningSoft,
     borderRadius: radius.md,
     padding: spacing.md,
     gap: spacing.xs,

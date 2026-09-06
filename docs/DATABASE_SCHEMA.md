@@ -86,6 +86,15 @@ No other schema changes this phase — `favorites`, `collections`/`collection_it
 
 No other schema changes this phase — `trip_members`, `trip_preferences`, `disruption_events`, `weather_cache`, `trusted_contacts`, `trip_location_shares`, `sos_events`, `quick_plans`/`quick_plan_items`, and `budget_expenses.split_with` all already existed from Phase 2 with exactly the shape F19/F20/F21/F22/F23 needed — only application code (Router→Service→Repository→API, plus mobile) was missing, confirmed by `docs/PHASE_STATUS.md`'s own Phase 2 note that these tables existed "with no application code reading/writing them yet."
 
+### 0g. Final Personalization + Translation/Voice Phase Implementation Changelog
+
+| Change | Detail | Migration |
+|---|---|---|
+| `profiles.travel_companion` — new nullable text column, `check (in ('solo','family','friends','couple','flexible'))` | New (5th) onboarding question: who the traveller usually travels with — the smallest possible addition, per this phase's explicit "reuse existing schema wherever possible" instruction. | `20260828120003` |
+| `profiles.trip_motivation` — new nullable text column, `check (char_length <= 500)` | New (6th, open-ended) onboarding question: "What makes a trip special for you?" — free text, capped to keep it a short conversational answer, not an essay field. | `20260828120003` |
+
+No change to `personalization_profile` (§10) — its existing `preference_weights jsonb` column, already in place from an earlier phase, is exactly the "structured, not one big text blob" shape this phase's Travel DNA feature needed; see §10's note on that table for what it now stores. `taste_embedding vector(1536)` remains genuinely unused — this phase is explicitly not a machine-learning pipeline.
+
 ---
 
 ## 1. Extensions
@@ -124,7 +133,21 @@ create table public.profiles (
   travel_style       text,               -- e.g. 'relaxed' | 'packed' | 'balanced' (onboarding, FR-003)
   pace               text check (pace in ('relaxed','balanced','packed')),  -- FR-003 input; fixes C1
   budget_bracket     text,               -- e.g. 'budget' | 'mid' | 'premium'
+  travel_companion   text check (travel_companion in ('solo','family','friends','couple','flexible')),
+                                                           -- Final Personalization phase, migration
+                                                           -- 20260828120003; onboarding question 5
+  trip_motivation    text check (char_length(trip_motivation) <= 500),
+                                                           -- Final Personalization phase, migration
+                                                           -- 20260828120003; open-ended onboarding
+                                                           -- question 6 ("What makes a trip special
+                                                           -- for you?"), free text, fed into
+                                                           -- personalization_profile below
   role               text not null default 'traveller' check (role in ('traveller','admin')),
+  preferred_language text not null default 'en'          -- UI/Language phase, migration
+    check (preferred_language in ('en','hi','te','ml','kn','ta')),  -- 20260828120002; also threaded
+                                                           -- into itinerary/chat/quick-plan/narration/
+                                                           -- photo-Q&A prompt system messages (see
+                                                           -- app/services/ai/language.py)
   onboarding_completed_at timestamptz,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
@@ -787,6 +810,8 @@ alter table public.personalization_profile enable row level security;
 create policy "personalization_profile_own" on public.personalization_profile for select using (auth.uid() = user_id);
 -- writes: service-role only (computed server-side by the Personalization Engine, never client-writable)
 ```
+
+**Final Personalization phase (Travel DNA)** reuses this table exactly as-is — no new migration. `preference_weights` now holds a structured object (`travel_style`, `pace`, `budget_bracket`, `travel_companion`, `trip_motivation`, `interests`, `favorite_categories`, `trips_planned`, `places_saved`, `positive_signal_count`, `travel_personality`, `summary`, `generated_by: "ai"|"template"`), recomputed on every `GET /v1/personalization/travel-dna` call from real onboarding answers + real `feedback_signals`/favorites/trips (see `app/services/personalization_service.py`). `taste_embedding` remains genuinely unused — this phase is explicitly not a machine-learning pipeline, per its own scope instruction.
 
 ```sql
 create table public.ai_conversations (

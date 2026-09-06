@@ -12,6 +12,7 @@ import type { Ionicons } from "@expo/vector-icons";
 export type TravelStyle = "planned" | "flexible" | "spontaneous";
 export type Pace = "relaxed" | "balanced" | "packed";
 export type BudgetBracket = "budget" | "mid" | "premium";
+export type TravelCompanion = "solo" | "family" | "friends" | "couple" | "flexible";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
@@ -82,5 +83,38 @@ export const BUDGET_BRACKET_OPTIONS: SelectOption<BudgetBracket>[] = [
     label: "Premium",
     description: "Comfort and convenience matter more than saving.",
     icon: "diamond-outline",
+  },
+];
+
+export const COMPANION_OPTIONS: SelectOption<TravelCompanion>[] = [
+  {
+    value: "solo",
+    label: "Solo",
+    description: "Just me, at my own pace.",
+    icon: "person-outline",
+  },
+  {
+    value: "family",
+    label: "Family",
+    description: "Travelling with parents, kids, or relatives.",
+    icon: "people-outline",
+  },
+  {
+    value: "friends",
+    label: "Friends",
+    description: "A group trip with friends.",
+    icon: "people-circle-outline",
+  },
+  {
+    value: "couple",
+    label: "Couple",
+    description: "Travelling with a partner.",
+    icon: "heart-outline",
+  },
+  {
+    value: "flexible",
+    label: "Depends on the trip",
+    description: "It varies — no fixed pattern.",
+    icon: "shuffle-outline",
   },
 ];

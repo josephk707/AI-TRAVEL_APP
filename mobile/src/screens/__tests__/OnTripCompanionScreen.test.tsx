@@ -20,6 +20,7 @@ import { OnTripCompanionScreen } from "../OnTripCompanionScreen";
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useRoute: () => ({ params: { tripId: "trip-1" } }),
+  useNavigation: () => ({ goBack: jest.fn() }),
 }));
 
 jest.mock("../../api/trips", () => ({

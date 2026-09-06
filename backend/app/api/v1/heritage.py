@@ -21,8 +21,7 @@ async def get_narration(
     params: NarrationQuery = Depends(),
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> Envelope[NarrationResponse]:
-    del user
-    result = await narration_service.get_narration(poi_id, params.layer, params.section)
+    result = await narration_service.get_narration(poi_id, params.layer, params.section, user.id)
     return Envelope(data=NarrationResponse.model_validate(result))
 
 
@@ -34,9 +33,8 @@ async def photo_qa(
     user: AuthenticatedUser = Depends(get_current_user),
     _rl: None = Depends(ai_rate_limit),
 ) -> Envelope[PhotoQaResponse]:
-    del user
     image_bytes = await image.read()
     result = await photo_qa_service.answer_photo_question(
-        poi_id, question, image_bytes, image.content_type or "application/octet-stream"
+        poi_id, question, image_bytes, image.content_type or "application/octet-stream", user.id
     )
     return Envelope(data=PhotoQaResponse.model_validate(result))

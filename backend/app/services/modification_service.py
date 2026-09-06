@@ -22,14 +22,25 @@ from app.repositories.ai_conversations_repository import (
     AiConversationsRepository,
     FeedbackRepository,
 )
+from app.repositories.interests_repository import InterestsRepository
+from app.repositories.onboarding_repository import OnboardingRepository
 from app.repositories.pois_repository import PoisRepository
+from app.repositories.profiles_repository import ProfilesRepository
 from app.repositories.trips_repository import TripsRepository
 from app.services import business_rules
 from app.services.ai.factory import get_llm_gateway
+from app.services.ai.language import language_instruction
 from app.services.ai.llm_gateway import GenerationConfig, LLMMessage, LLMProviderError, MessageRole
 from app.services.ai.prompts import modification as modification_prompts
 
 logger = logging.getLogger("app.services.modification")
+
+# AI_ARCHITECTURE.md §4 step 1 requires this pipeline to load the trip's
+# `ai_conversations` history for multi-turn context. Capped rather than
+# unbounded: only the recent turns are needed to resolve a follow-up, and
+# an ever-growing transcript would push both latency and token cost up on
+# every subsequent message (AI_ARCHITECTURE.md §12 cost controls).
+_MAX_HISTORY_MESSAGES = 10
 
 
 class _ItemChange(BaseModel):
@@ -57,6 +68,46 @@ def _flatten_current_items(days: list[dict[str, Any]]) -> list[dict[str, Any]]:
             item["day_number"] = day["day_number"]
             flat.append(item)
     return flat
+
+
+async def _load_traveller_context(user_id: str) -> tuple[dict[str, Any], list[str]]:
+    """Reads ONLY the traveller attributes this pipeline actually needs to
+    resolve a modification request — onboarding interests, travel style and
+    pace (CLAUDE.md §8: "AI calls must receive only the context necessary
+    for the task"). Deliberately narrower than
+    `itinerary_service._load_context`, which additionally pulls a computed
+    personalization summary for full-plan generation; a scoped diff does
+    not need it. Always scoped to the authenticated `user_id`, so no other
+    traveller's preferences can enter this prompt."""
+    profile = await ProfilesRepository().get_by_id(user_id) or {}
+    interest_ids = await OnboardingRepository().get_interest_ids_for_profile(user_id)
+    all_interests = {i["id"]: i["label"] for i in await InterestsRepository().list_interests()}
+    return profile, [str(all_interests[i]) for i in interest_ids if i in all_interests]
+
+
+def _build_profile_block(profile: dict[str, Any], interest_labels: list[str]) -> str:
+    """Real, live-testing-discovered gap (Gemini certification pass): the
+    modification prompt previously received the itinerary and the candidate
+    list but NOTHING about the traveller, so an entirely reasonable request
+    like "add one historical place that matches my interests" was
+    unanswerable — the model could only fall back to rule 3 and ask a
+    clarifying question, every single time. Verified directly against the
+    real Gemini API: identical prompt, identical itinerary, the only
+    difference being this block, moved the response from
+    `clarification_needed=true, 0 changes` to a correct scoped diff adding
+    Agra Fort. Omitted entirely (not emitted as empty placeholders) when
+    the profile carries none of these fields, so a brand-new traveller
+    degrades to exactly the previous behavior."""
+    lines = []
+    if interest_labels:
+        lines.append(f"interests: {', '.join(interest_labels)}")
+    if profile.get("travel_style"):
+        lines.append(f"travel style: {profile['travel_style']}")
+    if profile.get("pace"):
+        lines.append(f"preferred pace: {profile['pace']}")
+    if not lines:
+        return ""
+    return "TRAVELLER PROFILE:\n" + "\n".join(lines) + "\n\n"
 
 
 def _build_context_message(days: list[dict[str, Any]], candidates: list[dict], message: str) -> str:
@@ -89,6 +140,9 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
 
     conv_repo = AiConversationsRepository()
     conversation_id = await conv_repo.get_or_create_conversation(user_id, trip_id)
+    # Read the prior turns BEFORE logging the current one, so this request's
+    # own message is not replayed back to the model as if it were history.
+    history = await conv_repo.get_recent_messages(conversation_id, limit=_MAX_HISTORY_MESSAGES)
     await conv_repo.log_message(conversation_id, role="user", content=message)
 
     days = await trips_repo.get_itinerary(trip_id)
@@ -105,11 +159,38 @@ async def modify_itinerary(trip_id: str, user_id: str, message: str) -> dict[str
         await conv_repo.log_message(conversation_id, role="assistant", content=reply)
         return {"reply": reply, "changed_item_ids": [], "days": days}
 
+    profile, interest_labels = await _load_traveller_context(user_id)
+    raw_language = profile.get("preferred_language")
+    system_prompt = modification_prompts.SYSTEM_PROMPT + language_instruction(
+        str(raw_language) if raw_language else None
+    )
+
+    # Prior turns are replayed as real conversation messages (not flattened
+    # into the context blob) so the model can see that IT asked the
+    # clarifying question the traveller is now answering. Only the two
+    # conversational roles are replayed — a stored row with any other role
+    # is skipped rather than guessed at.
+    history_messages = [
+        LLMMessage(MessageRole(row["role"]), str(row["content"]))
+        for row in history
+        if row.get("role") in (MessageRole.USER, MessageRole.ASSISTANT) and row.get("content")
+    ]
+    # The history window is the last N rows, so it can begin mid-exchange
+    # with an assistant turn — a conversation that opens with a model turn
+    # is rejected by the provider, so drop any leading assistant messages.
+    while history_messages and history_messages[0].role is MessageRole.ASSISTANT:
+        history_messages.pop(0)
+
     try:
         response = await gateway.complete(
             [
-                LLMMessage(MessageRole.SYSTEM, modification_prompts.SYSTEM_PROMPT),
-                LLMMessage(MessageRole.USER, _build_context_message(days, candidates, message)),
+                LLMMessage(MessageRole.SYSTEM, system_prompt),
+                *history_messages,
+                LLMMessage(
+                    MessageRole.USER,
+                    _build_profile_block(profile, interest_labels)
+                    + _build_context_message(days, candidates, message),
+                ),
             ],
             response_schema=_ModificationResult,
             config=GenerationConfig(temperature=0.4, max_output_tokens=2048, timeout_seconds=20.0),
@@ -248,8 +329,17 @@ def _introduces_new_conflict(
         return False
     before_items = [dict(i) for i in day["items"]]
     after_items = [proposed if i["id"] == existing["id"] else dict(i) for i in day["items"]]
-    before_items.sort(key=lambda i: i.get("planned_start") or "")
-    after_items.sort(key=lambda i: i.get("planned_start") or "")
+
+    # Sort by parsed minutes, never by the raw value: the stored items carry
+    # `datetime.time` (asyncpg) while `proposed` carries the model's "HH:MM"
+    # string, and those two types are not orderable against each other —
+    # this raised a real TypeError (a 500 reaching the app) as soon as a day
+    # held two or more items and the traveller moved one of them.
+    def _order_key(item: dict[str, Any]) -> int:
+        return business_rules.minutes_since_midnight(item.get("planned_start")) or 0
+
+    before_items.sort(key=_order_key)
+    after_items.sort(key=_order_key)
     by_day_before = {day["day_number"]: before_items}
     by_day_after = {day["day_number"]: after_items}
     before_conflicts = set(

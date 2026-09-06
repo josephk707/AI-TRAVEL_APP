@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import math
 from datetime import date as date_cls
+from datetime import datetime as datetime_cls
+from datetime import time as time_cls
 from typing import Any, TypedDict
 
 from app.services import weather_service
@@ -55,15 +57,38 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * _EARTH_RADIUS_KM * math.asin(math.sqrt(a))
 
 
-def _parse_hm(value: str | None) -> int | None:
-    """Returns minutes-since-midnight, or None if unparseable/absent."""
-    if not value:
+def _parse_hm(value: Any) -> int | None:
+    """Returns minutes-since-midnight, or None if unparseable/absent.
+
+    Accepts BOTH the "HH:MM" strings an LLM pipeline produces and the
+    `datetime.time` objects asyncpg returns for a `time` column. Real,
+    live-testing-discovered bug (Gemini certification pass): only the
+    string form was handled, and a `time` object fell into the
+    `AttributeError` branch (no `.split`) and returned None — so on the F5
+    modification path, whose items come straight from the database, EVERY
+    time was "unparseable" and the overlap/travel-time checks silently
+    found nothing. The validator that AI_ARCHITECTURE.md §4 step 3-4 calls
+    "the source of truth for is this allowed" was a no-op there. This is a
+    purely widening change: every value that parsed before parses
+    identically now."""
+    if value is None or value == "":
         return None
+    if isinstance(value, (time_cls, datetime_cls)):
+        return value.hour * 60 + value.minute
     try:
-        hh, mm = value.split(":")
+        hh, mm = str(value).split(":")[:2]
         return int(hh) * 60 + int(mm)
     except (ValueError, AttributeError):
         return None
+
+
+def minutes_since_midnight(value: Any) -> int | None:
+    """Public wrapper over the parser the conflict checks themselves use,
+    so a caller that needs to ORDER items by time (e.g.
+    `modification_service._introduces_new_conflict`) sorts by exactly the
+    interpretation the validator will apply — and never by raw values of
+    mixed types, which is not orderable at all."""
+    return _parse_hm(value)
 
 
 def compute_budget_summary(

@@ -11,10 +11,15 @@ import { ApiError } from "../api/client";
 import { fetchOfflinePackage } from "../api/offline";
 import { fetchItinerary, fetchTrip, ItineraryDay, Trip } from "../api/trips";
 import { ItineraryItemCard } from "../components/ItineraryItemCard";
+import { ErrorState } from "../components/ErrorState";
+import { EmptyState } from "../components/EmptyState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
-import { Button } from "../components/Button";
+import { ScreenHeader } from "../components/ScreenHeader";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LoadState =
   | { status: "loading" }
@@ -31,6 +36,8 @@ export function ItineraryViewScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<RootStackParamList, "ItineraryView">>();
   const route = useRoute<RouteProp<RootStackParamList, "ItineraryView">>();
   const { tripId } = route.params;
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [refreshing, setRefreshing] = useState(false);
@@ -47,10 +54,10 @@ export function ItineraryViewScreen(): React.JSX.Element {
     } catch (err) {
       return {
         status: "error",
-        message: err instanceof ApiError ? err.message : "Couldn't load this itinerary.",
+        message: err instanceof ApiError ? err.message : t("itineraryView.couldntLoad"),
       };
     }
-  }, [tripId]);
+  }, [tripId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,78 +98,83 @@ export function ItineraryViewScreen(): React.JSX.Element {
       );
     } catch (error) {
       setDownloadMessage(
-        error instanceof ApiError ? error.message : "Couldn't download this trip for offline use.",
+        error instanceof ApiError ? error.message : t("itineraryView.couldntDownload"),
       );
     } finally {
       setDownloading(false);
     }
-  }, [tripId]);
+  }, [tripId, t]);
 
   if (state.status === "loading") {
     return (
-      <View style={styles.centered}>
-        <LoadingView label="Loading your itinerary…" />
-      </View>
+      <GradientBackground>
+        <View style={styles.centered}>
+          <LoadingView label={t("itineraryView.loading")} />
+        </View>
+      </GradientBackground>
     );
   }
 
   if (state.status === "error") {
     return (
-      <View style={styles.centered} testID="itinerary-error">
-        <Text style={styles.errorText}>{state.message}</Text>
-        <Button label="Retry" onPress={retryLoad} testID="itinerary-retry-button" />
-      </View>
+      <GradientBackground>
+        <View style={styles.centered} testID="itinerary-error">
+          <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={retryLoad} testID="itinerary-retry-button" />
+        </View>
+      </GradientBackground>
     );
   }
 
   const totalStops = state.days.reduce((sum, day) => sum + day.items.length, 0);
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={styles.flex}>
+      <StatusBar style="light" />
+      <View style={{ paddingTop: insets.top + spacing.sm }}>
+        <ScreenHeader title={state.trip.title} subtitle={state.trip.destination} />
+      </View>
       <View style={styles.header}>
-        <Text style={styles.title}>{state.trip.title}</Text>
-        <Text style={styles.subtitle}>{state.trip.destination}</Text>
         <View style={styles.toolsRow}>
           <ToolButton
             icon="wallet-outline"
-            label="Budget"
+            label={t("itineraryView.budget")}
             testID="open-budget-button"
             onPress={() => navigation.navigate("BudgetView", { tripId })}
           />
           <ToolButton
             icon="images-outline"
-            label="Memories"
+            label={t("itineraryView.memories")}
             testID="open-memory-box-button"
             onPress={() => navigation.navigate("MemoryBox", { tripId })}
           />
           <ToolButton
             icon="chatbubbles-outline"
-            label="Phrases"
+            label={t("itineraryView.phrases")}
             testID="open-phrasebook-button"
             onPress={() => navigation.navigate("Phrasebook", { tripId })}
           />
           <ToolButton
             icon="navigate-outline"
-            label="On-trip"
+            label={t("itineraryView.onTrip")}
             testID="open-on-trip-companion-button"
             onPress={() => navigation.navigate("OnTripCompanion", { tripId })}
           />
           <ToolButton
             icon="people-outline"
-            label="Group"
+            label={t("itineraryView.group")}
             testID="open-group-invite-button"
             onPress={() => navigation.navigate("GroupInvite", { tripId })}
           />
           <ToolButton
             icon="shield-checkmark-outline"
-            label="Safety"
+            label={t("itineraryView.safety")}
             testID="open-safety-button"
             onPress={() => navigation.navigate("Safety", { tripId })}
           />
           <ToolButton
             icon="cloud-download-outline"
-            label={downloading ? "Saving…" : "Offline"}
+            label={downloading ? t("itineraryView.saving") : t("itineraryView.offline")}
             testID="download-offline-button"
             onPress={() => void downloadForOffline()}
           />
@@ -176,7 +188,7 @@ export function ItineraryViewScreen(): React.JSX.Element {
 
       {totalStops === 0 ? (
         <View style={styles.centered} testID="itinerary-empty">
-          <Text style={styles.emptyText}>No itinerary items yet.</Text>
+          <EmptyState icon="map-outline" title={t("itineraryView.emptyItems")} />
         </View>
       ) : (
         <ScrollView
@@ -188,7 +200,7 @@ export function ItineraryViewScreen(): React.JSX.Element {
           {state.days.map((day) => (
             <View key={day.day_number} style={styles.daySection}>
               <Text style={styles.dayHeading}>
-                Day {day.day_number}
+                {t("itineraryView.day")} {day.day_number}
                 {day.date ? ` · ${day.date}` : ""}
               </Text>
               <View style={styles.dayItems}>
@@ -207,9 +219,10 @@ export function ItineraryViewScreen(): React.JSX.Element {
         testID="open-chat-fab"
         accessibilityRole="button"
       >
-        <Text style={styles.chatFabText}>💬 Adjust plan</Text>
+        <Text style={styles.chatFabText}>💬 {t("itineraryView.adjustPlan")}</Text>
       </Pressable>
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
@@ -233,18 +246,15 @@ function ToolButton({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  emptyText: { ...typography.body, color: colors.textMuted },
   header: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted },
-  toolsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.md },
+  toolsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   toolButton: { alignItems: "center", gap: 2, minWidth: 64 },
   toolButtonLabel: { ...typography.caption, color: colors.primary },
   downloadMessage: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm },

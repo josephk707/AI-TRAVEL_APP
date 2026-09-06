@@ -4,7 +4,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -16,8 +15,14 @@ import { createReview, listPoiReviews, Review } from "../api/reviews";
 import { listTrips, Trip } from "../api/trips";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
 import { MapErrorBoundary } from "../components/MapErrorBoundary";
+import { MapView, Marker, PROVIDER_GOOGLE } from "../components/PlatformMap";
+import { ScreenHeader } from "../components/ScreenHeader";
+import { WeatherCard } from "../components/WeatherCard";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -57,6 +62,7 @@ export function PoiDetailScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<RootStackParamList, "PoiDetail">>();
   const route = useRoute<RouteProp<RootStackParamList, "PoiDetail">>();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
@@ -79,10 +85,10 @@ export function PoiDetailScreen(): React.JSX.Element {
     } catch (error) {
       return {
         status: "error",
-        message: error instanceof ApiError ? error.message : "Couldn't load this place.",
+        message: error instanceof ApiError ? error.message : t("poiDetail.couldntLoadPlace"),
       };
     }
-  }, [route.params.poiId]);
+  }, [route.params.poiId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,7 +152,7 @@ export function PoiDetailScreen(): React.JSX.Element {
 
   const submitReview = useCallback(async () => {
     if (loadState.status !== "success" || !reviewForm.visible || !reviewForm.tripId) {
-      setReviewError("Choose a completed trip that included this place.");
+      setReviewError(t("poiDetail.chooseCompletedTrip"));
       return;
     }
     setSubmittingReview(true);
@@ -157,28 +163,33 @@ export function PoiDetailScreen(): React.JSX.Element {
       const fetched = await listPoiReviews(loadState.poi.id);
       setReviews(fetched);
     } catch (error) {
-      setReviewError(error instanceof ApiError ? error.message : "Couldn't submit your review.");
+      setReviewError(error instanceof ApiError ? error.message : t("poiDetail.couldntSubmitReview"));
     } finally {
       setSubmittingReview(false);
     }
-  }, [loadState, reviewForm]);
+  }, [loadState, reviewForm, t]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
+      <StatusBar style="light" />
+
+      <ScreenHeader title="" />
 
       {loadState.status === "loading" && (
         <View style={styles.centerFill}>
-          <LoadingView label="Loading place…" />
+          <LoadingView label={t("poiDetail.loadingPlace")} />
         </View>
       )}
 
       {loadState.status === "error" && (
         <View style={styles.centerFill} testID="poi-detail-error">
-          <Text style={styles.errorText}>{loadState.message}</Text>
-          <View style={styles.retryButton}>
-            <Button label="Retry" onPress={retryLoad} testID="poi-detail-retry-button" />
-          </View>
+          <ErrorState
+            message={loadState.message}
+            retryLabel={t("common.retry")}
+            onRetry={retryLoad}
+            testID="poi-detail-retry-button"
+          />
         </View>
       )}
 
@@ -225,20 +236,22 @@ export function PoiDetailScreen(): React.JSX.Element {
             {loadState.poi.address && <Text style={styles.address}>{loadState.poi.address}</Text>}
 
             <Card style={styles.detailCard}>
-              <DetailRow icon="pricetag-outline" label="Category">
+              <DetailRow icon="pricetag-outline" label={t("poiDetail.category")}>
                 {loadState.poi.category}
               </DetailRow>
               {loadState.poi.avg_cost != null && (
-                <DetailRow icon="wallet-outline" label="Typical cost">
+                <DetailRow icon="wallet-outline" label={t("poiDetail.typicalCost")}>
                   ₹{loadState.poi.avg_cost}
                 </DetailRow>
               )}
-              <DetailRow icon="time-outline" label="Opening hours">
+              <DetailRow icon="time-outline" label={t("poiDetail.openingHours")}>
                 {formatOpeningHours(loadState.poi.opening_hours).length > 0
                   ? formatOpeningHours(loadState.poi.opening_hours).join("\n")
-                  : "Not confirmed — verify on arrival"}
+                  : t("poiDetail.hoursNotConfirmed")}
               </DetailRow>
             </Card>
+
+            <WeatherCard lat={loadState.poi.location.lat} lng={loadState.poi.location.lng} />
 
             {loadState.poi.category === "heritage" && (
               <Pressable
@@ -253,24 +266,26 @@ export function PoiDetailScreen(): React.JSX.Element {
                 testID="heritage-story-button"
               >
                 <Ionicons name="book-outline" size={20} color={colors.primaryText} />
-                <Text style={styles.heritageCardText}>Read the heritage story</Text>
+                <Text style={styles.heritageCardText}>{t("poiDetail.readHeritageStory")}</Text>
                 <Ionicons name="chevron-forward" size={18} color={colors.primaryText} />
               </Pressable>
             )}
 
             <View style={styles.reviewsSection} testID="reviews-section">
               <View style={styles.reviewsHeader}>
-                <Text style={styles.reviewsHeading}>Reviews ({reviews.length})</Text>
+                <Text style={styles.reviewsHeading}>
+                  {t("poiDetail.reviews")} ({reviews.length})
+                </Text>
                 {!reviewForm.visible && (
                   <Pressable onPress={openReviewForm} testID="write-review-button">
-                    <Text style={styles.writeReviewText}>Write a review</Text>
+                    <Text style={styles.writeReviewText}>{t("poiDetail.writeReview")}</Text>
                   </Pressable>
                 )}
               </View>
 
               {reviews.length === 0 && (
                 <Text style={styles.emptyReviewsText} testID="reviews-empty">
-                  No reviews yet.
+                  {t("poiDetail.noReviewsYet")}
                 </Text>
               )}
 
@@ -284,9 +299,7 @@ export function PoiDetailScreen(): React.JSX.Element {
               {reviewForm.visible && (
                 <Card style={styles.reviewForm} testID="review-form">
                   {completedTrips.length === 0 ? (
-                    <Text style={styles.emptyReviewsText}>
-                      Complete a trip that included this place to leave a review.
-                    </Text>
+                    <Text style={styles.emptyReviewsText}>{t("poiDetail.completeATripPrompt")}</Text>
                   ) : (
                     <View style={styles.tripPickerRow}>
                       {completedTrips.map((trip) => (
@@ -328,13 +341,14 @@ export function PoiDetailScreen(): React.JSX.Element {
 
                   <View style={styles.reviewFormActions}>
                     <Button
-                      label={submittingReview ? "Submitting…" : "Submit review"}
+                      label={submittingReview ? t("poiDetail.submittingReview") : t("poiDetail.submitReview")}
                       onPress={() => void submitReview()}
                       disabled={submittingReview || completedTrips.length === 0}
                       testID="submit-review-button"
+                      fullWidth={false}
                     />
                     <Pressable onPress={() => setReviewForm({ visible: false })} testID="cancel-review-button">
-                      <Text style={styles.cancelReviewText}>Cancel</Text>
+                      <Text style={styles.cancelReviewText}>{t("common.cancel")}</Text>
                     </Pressable>
                   </View>
                 </Card>
@@ -343,7 +357,8 @@ export function PoiDetailScreen(): React.JSX.Element {
           </View>
         </ScrollView>
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
@@ -368,10 +383,9 @@ function DetailRow({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1 },
   centerFill: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  retryButton: { marginTop: spacing.md },
   scrollContent: { paddingBottom: spacing.xl },
   map: { height: 220, width: "100%" },
   mapFallback: { height: 220, width: "100%", backgroundColor: colors.surface },

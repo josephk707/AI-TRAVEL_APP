@@ -19,11 +19,20 @@ backend-cached proxy over Google Places"):
      search is temporarily unavailable rather than silently pretending
      the catalog is complete.
 
-`GET /pois/nearby` is intentionally DB-only (no live call) per
-API_SPECIFICATION.md §5's own description ("ST_DWithin query against
-pois.location") — nearby is the fast, cheap, frequently-polled path (e.g.
-future on-trip companion use, F7), so it must not carry Google Places
-latency/cost on every call.
+`GET /pois/nearby` was originally documented as DB-only (no live call),
+reasoned as "the fast, cheap, frequently-polled path must not carry
+Google Places latency/cost on every call". **Superseded, Maps Integration
+phase (documented decision, CLAUDE.md §13):** `nearby()` now applies the
+exact same cache-first/live-augment-when-sparse policy as `search()`
+above, but against Geoapify Places (a genuinely location-based provider —
+unlike Google's paid-per-call text search, a radius/category lookup is
+what "nearby" actually needs) and gated behind the same
+`_LIVE_AUGMENT_THRESHOLD` so an already-well-covered area still never
+pays live-call latency. `search()`'s own lat/lng-only branch (no `query`
+text) is UNCHANGED — it still never calls a live provider, since that
+behavior has its own locking test (`test_search_by_nearby_never_calls_the_live_provider`,
+tests/test_poi_service.py) asserting the free-text-search-only augment
+policy documented above it.
 """
 
 from __future__ import annotations
@@ -35,11 +44,89 @@ from app.core.config import get_settings
 from app.core.exceptions import NotFoundError
 from app.repositories.pois_repository import PoisRepository
 from app.schemas.poi import PoiNearbyQuery, PoiSearchQuery
+from app.services.geoapify_places_client import GeoapifyPlacesClient
 from app.services.google_places_client import GooglePlacesClient, PlacesProviderError
 
 logger = logging.getLogger("app.services.poi")
 
 _LIVE_AUGMENT_THRESHOLD = 3
+
+# Geoapify's category taxonomy (returned per-result in `properties.categories`,
+# a list like ["tourism", "tourism.sights", "tourism.sights.memorial"]) mapped
+# down to this app's 6-value PoiCategory enum. Checked in this priority order
+# (most-specific-tourism-relevant first) so a result tagged both "catering"
+# and "tourism" lands under the more specific "restaurant", not "attraction".
+_GEOAPIFY_TYPE_TO_CATEGORY: list[tuple[str, str]] = [
+    ("catering.restaurant", "restaurant"),
+    ("catering.cafe", "restaurant"),
+    ("catering.bar", "restaurant"),
+    ("catering.fast_food", "restaurant"),
+    ("catering.pub", "restaurant"),
+    ("catering", "restaurant"),
+    ("heritage", "heritage"),
+    ("tourism.sights", "heritage"),
+    ("religion", "heritage"),
+    ("natural", "nature"),
+    ("leisure.park", "nature"),
+    ("leisure.nature_reserve", "nature"),
+    ("commercial.shopping_mall", "shopping"),
+    ("commercial.marketplace", "shopping"),
+    ("commercial", "shopping"),
+    ("tourism.attraction", "attraction"),
+    ("entertainment", "attraction"),
+    ("tourism", "attraction"),
+]
+
+
+def _map_geoapify_category(categories: list[str]) -> str:
+    category_set = set(categories)
+    for geoapify_type, category in _GEOAPIFY_TYPE_TO_CATEGORY:
+        if geoapify_type in category_set:
+            return category
+    return "other"
+
+
+def _validate_and_map_geoapify_place(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """Same contract as `_validate_and_map_google_place` below: a
+    malformed/incomplete provider result is skipped, never persisted with
+    fabricated defaults (CLAUDE.md §8)."""
+    props = raw.get("properties")
+    if not isinstance(props, dict):
+        return None
+
+    place_id = props.get("place_id")
+    name = props.get("name")
+    lat = props.get("lat")
+    lng = props.get("lon")
+
+    if not place_id or not name or lat is None or lng is None:
+        logger.warning("geoapify_place_skipped_incomplete", extra={"place_id": place_id})
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        logger.warning("geoapify_place_skipped_bad_coords", extra={"place_id": place_id})
+        return None
+
+    categories = props.get("categories", [])
+    return {
+        "name": name,
+        "category": _map_geoapify_category(categories if isinstance(categories, list) else []),
+        "lat": float(lat),
+        "lng": float(lng),
+        "address": props.get("formatted"),
+        "city": props.get("city"),
+        "region": props.get("state"),
+        # Geoapify returns opening hours as a single free-text OSM string
+        # (e.g. "Mo-Su 06:00-19:00"), not the per-weekday dict this app's
+        # `opening_hours` column/UI (PoiDetailScreen's formatOpeningHours)
+        # expects — storing it as-is would silently mismatch that shape, so
+        # it is left unset here rather than fabricated into a fake
+        # structure; the UI's existing "verify on arrival" fallback covers
+        # this honestly, exactly as it already does for any POI with no
+        # confirmed hours.
+        "opening_hours": None,
+        "external_ref": place_id,
+    }
+
 
 # Google's place `types` are far more granular than our 6-value category
 # enum (DATABASE_SCHEMA.md §pois CHECK constraint) — this maps the most
@@ -200,7 +287,41 @@ async def get_by_id(poi_id: str) -> dict[str, Any]:
     return _to_row_dict(row)
 
 
-async def nearby(params: PoiNearbyQuery) -> list[dict[str, Any]]:
+async def nearby(params: PoiNearbyQuery) -> tuple[list[dict[str, Any]], bool]:
+    """Returns (results, degraded) — same contract as `search()` above.
+    `degraded=True` means live augmentation was skipped or failed; the
+    real DB-cached results returned are still genuine, just possibly
+    incomplete relative to what a live Geoapify call could add."""
     repo = PoisRepository()
-    rows = await repo.search_nearby(params.lat, params.lng, params.radius_m, params.category)
-    return [_to_row_dict(row) for row in rows]
+    cached = await repo.search_nearby(params.lat, params.lng, params.radius_m, params.category)
+
+    if len(cached) >= _LIVE_AUGMENT_THRESHOLD:
+        return [_to_row_dict(row) for row in cached], False
+
+    settings = get_settings()
+    if settings.geoapify_api_key is None:
+        logger.info("poi_nearby_degraded", extra={"reason": "not_configured"})
+        return [_to_row_dict(row) for row in cached], True
+
+    client = GeoapifyPlacesClient(settings.geoapify_api_key.get_secret_value())
+    try:
+        live_results = await client.search_nearby(
+            params.lat, params.lng, params.radius_m, params.category
+        )
+    except PlacesProviderError:
+        logger.warning("poi_nearby_live_call_failed", exc_info=True)
+        return [_to_row_dict(row) for row in cached], True
+
+    known_refs = {row["external_ref"] for row in cached if row.get("external_ref")}
+    merged = list(cached)
+    for raw_place in live_results:
+        mapped = _validate_and_map_geoapify_place(raw_place)
+        if mapped is None or mapped["external_ref"] in known_refs:
+            continue
+        if params.category and mapped["category"] != params.category:
+            continue
+        cached_row = await repo.upsert_from_places_api(mapped)
+        merged.append(cached_row)
+        known_refs.add(mapped["external_ref"])
+
+    return [_to_row_dict(row) for row in merged], False

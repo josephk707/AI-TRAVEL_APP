@@ -6,9 +6,11 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
+import { GradientBackground } from "../../components/GradientBackground";
 import { ProgressDots } from "../../components/ProgressDots";
 import {
   BUDGET_BRACKET_OPTIONS,
+  COMPANION_OPTIONS,
   PACE_OPTIONS,
   TRAVEL_STYLE_OPTIONS,
 } from "../../onboarding/onboardingOptions";
@@ -28,17 +30,19 @@ function labelFor<T extends string>(
  * flips true (via completeOnboardingLocally()) and RootNavigator swaps to
  * the authenticated app automatically — no explicit navigation call here. */
 export function OnboardingCompleteScreen(): React.JSX.Element {
-  const { interestIds, travelStyle, pace, budgetBracket } = useOnboardingStore();
+  const { interestIds, travelStyle, pace, budgetBracket, travelCompanion, tripMotivation } =
+    useOnboardingStore();
   const { submit, state: submitState, errorMessage } = useSubmitOnboarding();
   const insets = useSafeAreaInsets();
   const isSubmitting = submitState === "submitting";
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
+      <StatusBar style="light" />
 
       <View style={styles.header}>
-        <ProgressDots total={4} currentIndex={3} />
+        <ProgressDots total={5} currentIndex={4} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -73,6 +77,14 @@ export function OnboardingCompleteScreen(): React.JSX.Element {
             label="Budget"
             value={labelFor(BUDGET_BRACKET_OPTIONS, budgetBracket)}
           />
+          <SummaryRow
+            icon="people-outline"
+            label="Travels with"
+            value={labelFor(COMPANION_OPTIONS, travelCompanion)}
+          />
+          {tripMotivation.trim().length > 0 && (
+            <SummaryRow icon="sparkles-outline" label="What matters to you" value={tripMotivation} />
+          )}
         </Card>
 
         {submitState === "error" && errorMessage && (
@@ -97,7 +109,8 @@ export function OnboardingCompleteScreen(): React.JSX.Element {
           />
         )}
       </View>
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
@@ -135,9 +148,16 @@ const styles = StyleSheet.create({
   title: { ...typography.title, color: colors.text, textAlign: "center" },
   subtitle: { ...typography.body, color: colors.textMuted, textAlign: "center" },
   summaryCard: { gap: spacing.sm },
-  summaryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  summaryRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   summaryLabel: { ...typography.body, color: colors.textMuted, flex: 1 },
-  summaryValue: { ...typography.body, color: colors.text, fontWeight: "600" },
+  summaryValue: {
+    ...typography.body,
+    color: colors.text,
+    fontWeight: "600",
+    flexShrink: 1,
+    maxWidth: "60%",
+    textAlign: "right",
+  },
   errorText: { ...typography.body, color: colors.error, textAlign: "center" },
   footer: {
     paddingHorizontal: spacing.lg,

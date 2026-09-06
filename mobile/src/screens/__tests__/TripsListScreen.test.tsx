@@ -22,6 +22,14 @@ jest.mock("@react-navigation/native", () => ({
   useNavigation: () => mockNavigation,
 }));
 
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  return { useTranslation: () => ({ t }) };
+});
+
 jest.mock("../../api/trips", () => ({
   listTrips: jest.fn(),
 }));

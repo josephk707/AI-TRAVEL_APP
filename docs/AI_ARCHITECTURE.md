@@ -94,7 +94,13 @@ Runs on `POST /trips/{trip_id}/notes` before itinerary generation:
 
 ```
 1. Load current itinerary_items + ai_conversations history for this trip (multi-turn context, §19.2
-   "Personalisation/context management")
+   "Personalisation/context management") + the traveller's own onboarding interests / travel style /
+   pace. Prior turns are replayed as real conversation messages (user/assistant roles), not
+   flattened into the context blob, so the model can see that IT asked the clarifying question the
+   traveller is now answering; the window is capped (§12 cost controls) and never opens on an
+   assistant turn. The profile block is omitted entirely for a traveller who has no preferences yet.
+   Both were added in the Gemini certification pass — see PHASE_STATUS.md "Gemini integration
+   certification" for the live evidence that motivated each.
 2. LLMGateway.complete() interprets the request against current state; output is a *scoped diff*
    (which itinerary_items change), never a full itinerary regeneration — this is what guarantees
    "only the relevant segment changes, rest of plan preserved" (FR-004 acceptance criteria)

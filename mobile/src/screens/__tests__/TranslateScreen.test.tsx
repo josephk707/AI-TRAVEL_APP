@@ -6,9 +6,19 @@ import { ApiError } from "../../api/client";
 import { translateSpeech, translateText } from "../../api/translation";
 import { TranslateScreen } from "../TranslateScreen";
 
+jest.mock("@react-navigation/native", () => ({
+  ...jest.requireActual("@react-navigation/native"),
+  useNavigation: () => ({ goBack: jest.fn() }),
+}));
+
 jest.mock("../../api/translation", () => ({
   translateText: jest.fn(),
   translateSpeech: jest.fn(),
+}));
+
+jest.mock("expo-speech", () => ({
+  speak: jest.fn(),
+  stop: jest.fn(),
 }));
 
 const mockTranslateText = translateText as jest.Mock;
@@ -143,5 +153,54 @@ describe("TranslateScreen", () => {
     expect(mockTranslateSpeech).toHaveBeenCalledWith("file://clip.m4a", "Hindi");
     expect(screen.getByText('Heard: “Where is the nearest railway station?”')).toBeTruthy();
     expect(screen.getByText("निकटतम रेलवे स्टेशन कहाँ है?")).toBeTruthy();
+  });
+
+  it("shows a live sentence count and blocks translation past the two-sentence limit", async () => {
+    await render(<TranslateScreen />);
+
+    await act(async () => {
+      fireEvent.changeText(
+        screen.getByTestId("translate-input"),
+        "Where is the station? How much does it cost? Can I pay by card?",
+      );
+    });
+
+    expect(screen.getByText(/3\/2 sentences/)).toBeTruthy();
+    expect(screen.getByTestId("translate-button").props.accessibilityState?.disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("translate-button"));
+    });
+    expect(mockTranslateText).not.toHaveBeenCalled();
+  });
+
+  it("speaks the real translated text aloud when Listen is pressed", async () => {
+    const Speech = jest.requireMock("expo-speech") as { speak: jest.Mock; stop: jest.Mock };
+    mockTranslateText.mockResolvedValue({
+      original_text: "hello",
+      target_language: "Hindi",
+      translated_text: "नमस्ते",
+      transliteration: "Namaste",
+      note: null,
+      recognized_language: true,
+    });
+
+    await render(<TranslateScreen />);
+    await act(async () => {
+      fireEvent.changeText(screen.getByTestId("translate-input"), "hello");
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("translate-button"));
+    });
+    await waitFor(() => expect(screen.getByTestId("translate-result")).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("listen-button"));
+    });
+
+    expect(Speech.speak).toHaveBeenCalledWith(
+      "नमस्ते",
+      expect.objectContaining({ language: "hi-IN" }),
+    );
   });
 });

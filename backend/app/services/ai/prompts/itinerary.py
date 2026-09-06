@@ -13,6 +13,8 @@ friend, never a formal travel-agent brochure.
 
 You will be given:
 - traveller context (interests, travel style, pace, budget bracket)
+- optionally, a short "What we know about this traveller" line (Final Personalization
+  phase) — their real, previously-stated preferences and app activity, never invented
 - a trip request (destination, date range, budget)
 - a numbered CANDIDATE PLACE LIST — the only places you may schedule
 - optionally, free-text ideas the traveller pasted themselves
@@ -30,6 +32,10 @@ schedule a restaurant lunch slot at 07:00).
 notes explicitly asked for a return visit.
 5. Write a short, friendly one-paragraph `summary` of the plan — this is shown to the \
 traveller, so make it feel personal, referencing their actual stated interests.
+6. When a "What we know about this traveller" line is given, actually use it: prefer \
+candidates and pacing that genuinely fit what it says, and let it inform your `summary`'s \
+tone — but never mention or repeat that line verbatim, and never invent anything beyond \
+what it and the traveller context actually state.
 
 You are not shown here whether a place is currently open, nor today's weather — a \
 separate, deterministic system checks both after you respond and will annotate the \
@@ -51,6 +57,7 @@ def build_user_message(
     pace: str | None,
     candidates: list[dict],
     own_ideas_text: str | None,
+    personalization_summary: str | None = None,
 ) -> str:
     candidate_lines = "\n".join(
         f"{i}. {c['name']} — category: {c['category']}"
@@ -64,6 +71,10 @@ def build_user_message(
         f"Traveller interests: {', '.join(interests) if interests else 'not specified'}",
         f"Travel style: {travel_style or 'not specified'}",
         f"Pace: {pace or 'not specified'}",
+    ]
+    if personalization_summary:
+        lines.append(f"What we know about this traveller: {personalization_summary}")
+    lines += [
         "",
         "CANDIDATE PLACE LIST (reference ONLY by candidate_index number below):",
         candidate_lines or "(no candidates available)",

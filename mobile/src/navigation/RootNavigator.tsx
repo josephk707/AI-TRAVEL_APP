@@ -13,14 +13,17 @@ import { GroupInviteScreen } from "../screens/GroupInviteScreen";
 import { HeritageNarrationScreen } from "../screens/HeritageNarrationScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ItineraryViewScreen } from "../screens/ItineraryViewScreen";
+import { LanguageSettingsScreen } from "../screens/LanguageSettingsScreen";
 import { MemoryBoxScreen } from "../screens/MemoryBoxScreen";
 import { NotificationsCentreScreen } from "../screens/NotificationsCentreScreen";
 import { OnTripCompanionScreen } from "../screens/OnTripCompanionScreen";
 import { PhotoQAScreen } from "../screens/PhotoQAScreen";
 import { PhrasebookScreen } from "../screens/PhrasebookScreen";
 import { PoiDetailScreen } from "../screens/PoiDetailScreen";
+import { ProfileScreen } from "../screens/ProfileScreen";
 import { QuickPlanScreen } from "../screens/QuickPlanScreen";
 import { SafetyScreen } from "../screens/SafetyScreen";
+import { SettingsScreen } from "../screens/SettingsScreen";
 import { SignInScreen } from "../screens/SignInScreen";
 import { TranslateScreen } from "../screens/TranslateScreen";
 import { TripCreationScreen } from "../screens/TripCreationScreen";
@@ -66,6 +69,9 @@ export type RootStackParamList = {
   GroupInvite: { tripId: string };
   Safety: { tripId: string };
   QuickPlan: undefined;
+  Profile: undefined;
+  Settings: undefined;
+  LanguageSettings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -108,6 +114,9 @@ export function RootNavigator(): React.JSX.Element {
               <Stack.Screen name="GroupInvite" component={GroupInviteScreen} />
               <Stack.Screen name="Safety" component={SafetyScreen} />
               <Stack.Screen name="QuickPlan" component={QuickPlanScreen} />
+              <Stack.Screen name="Profile" component={ProfileScreen} />
+              <Stack.Screen name="Settings" component={SettingsScreen} />
+              <Stack.Screen name="LanguageSettings" component={LanguageSettingsScreen} />
             </>
           ) : (
             <Stack.Screen name="Onboarding" component={OnboardingNavigator} />

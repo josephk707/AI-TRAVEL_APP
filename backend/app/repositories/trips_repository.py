@@ -13,7 +13,6 @@ at this layer, exercised on every trip-scoped request BEFORE any read/write
 
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import time as time_cls
 from typing import Any
@@ -172,6 +171,13 @@ class TripsRepository(Repository):
     async def update_note_parsed(
         self, note_id: str, extracted_places: list[dict], unparsed_remainder: str | None
     ) -> None:
+        # `str()` first: the only caller (idea_extraction_service) passes the
+        # `id` straight out of `create_note`'s returned row, which asyncpg
+        # hands back as an `asyncpg.pgproto.UUID` object rather than a plain
+        # string — and `uuid.UUID()` calls `.replace` on its argument, so an
+        # already-UUID value raised `AttributeError` and surfaced as a 500.
+        # Real bug found by running the note-submission path live; it is
+        # reached whether or not an LLM is configured.
         await self.fetchval(
             """
             update public.trip_raw_notes
@@ -179,8 +185,16 @@ class TripsRepository(Repository):
             where id = $1
             returning id;
             """,
-            uuid.UUID(note_id),
-            json.dumps(extracted_places),
+            uuid.UUID(str(note_id)),
+            # NOT json.dumps()-ed: the pool registers a jsonb<->dict/list
+            # codec whose encoder is already json.dumps (app/db/session.py),
+            # so pre-dumping stores a JSON *string* in the column and reads
+            # it back as `str` — the same double-encoding bug already
+            # documented for budget/disruption/group/notifications. It was
+            # invisible here only because the `uuid.UUID()` crash above meant
+            # this statement never ran; fixing that exposed it immediately
+            # (GET /trips/{id}/notes then failed schema validation).
+            extracted_places,
             unparsed_remainder,
         )
 

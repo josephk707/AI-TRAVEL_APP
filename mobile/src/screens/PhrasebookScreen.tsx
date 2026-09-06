@@ -1,14 +1,18 @@
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { SectionList, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import { downloadTripPhrasebook, PhrasebookEntry } from "../api/phrasebook";
-import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -34,6 +38,8 @@ function groupByCategory(entries: PhrasebookEntry[]): { title: string; data: Phr
 export function PhrasebookScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "Phrasebook">>();
   const { tripId } = route.params;
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
@@ -44,10 +50,10 @@ export function PhrasebookScreen(): React.JSX.Element {
     } catch (error) {
       return {
         status: "error",
-        message: error instanceof ApiError ? error.message : "Couldn't load the phrasebook.",
+        message: error instanceof ApiError ? error.message : t("phrasebook.couldntLoad"),
       };
     }
-  }, [tripId]);
+  }, [tripId, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,29 +71,28 @@ export function PhrasebookScreen(): React.JSX.Element {
   }, [resolvePhrasebook]);
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Local phrases</Text>
+    <GradientBackground>
+      <View style={styles.flex}>
+      <StatusBar style="light" />
+      <View style={{ paddingTop: insets.top + spacing.sm }}>
+        <ScreenHeader title={t("phrasebook.title")} />
       </View>
 
       {state.status === "loading" && (
         <View style={styles.centered}>
-          <LoadingView label="Loading local phrases…" />
+          <LoadingView label={t("phrasebook.loading")} />
         </View>
       )}
 
       {state.status === "error" && (
         <View style={styles.centered} testID="phrasebook-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="phrasebook-retry-button" />
+          <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={load} testID="phrasebook-retry-button" />
         </View>
       )}
 
       {state.status === "success" && state.entries.length === 0 && (
         <View style={styles.centered} testID="phrasebook-empty">
-          <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyText}>No phrases available for this destination yet.</Text>
+          <EmptyState icon="chatbubbles-outline" title={t("phrasebook.emptyTitle")} />
         </View>
       )}
 
@@ -109,17 +114,14 @@ export function PhrasebookScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
-  header: { padding: spacing.lg, paddingBottom: spacing.sm },
-  title: { ...typography.title, color: colors.text },
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  emptyText: { ...typography.body, color: colors.textMuted, textAlign: "center" },
   list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
   sectionHeading: {
     ...typography.subtitle,

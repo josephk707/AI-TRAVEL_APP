@@ -46,6 +46,19 @@ async def get_profile(user: AuthenticatedUser) -> dict[str, object]:
     return profile
 
 
+async def update_preferred_language(
+    user: AuthenticatedUser, preferred_language: str
+) -> dict[str, object]:
+    """Persists the caller's own UI-language preference. Identity comes
+    from the verified token (`user.id`), never a client-supplied id —
+    same trust boundary as every other method in this module."""
+    repo = ProfilesRepository()
+    existing = await repo.get_by_id(user.id)
+    if existing is None:
+        raise NotFoundError("Profile not found for the authenticated user.")
+    return await repo.update_preferred_language(user.id, preferred_language)
+
+
 async def revoke_session(access_token: str) -> None:
     """Revokes the CALLER'S OWN session via Supabase Auth's own logout
     endpoint, using the caller's own access token — not the service-role

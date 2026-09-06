@@ -21,9 +21,15 @@ import {
   MemoryItem,
   MemoryItemType,
 } from "../api/memory";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { supabase } from "../lib/supabase";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
@@ -53,6 +59,7 @@ export function MemoryBoxScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "MemoryBox">>();
   const { tripId } = route.params;
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [noteText, setNoteText] = useState("");
@@ -160,11 +167,10 @@ export function MemoryBoxScreen(): React.JSX.Element {
   );
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Memory Box</Text>
-      </View>
+    <GradientBackground>
+      <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
+      <StatusBar style="light" />
+      <ScreenHeader title="Memory Box" />
 
       <View style={styles.composer}>
         <TextInput
@@ -203,15 +209,18 @@ export function MemoryBoxScreen(): React.JSX.Element {
 
       {state.status === "error" && (
         <View style={styles.centered} testID="memory-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="memory-retry-button" />
+          <ErrorState
+            message={state.message}
+            retryLabel="Retry"
+            onRetry={load}
+            testID="memory-retry-button"
+          />
         </View>
       )}
 
       {state.status === "success" && state.items.length === 0 && (
         <View style={styles.centered} testID="memory-empty">
-          <Ionicons name="images-outline" size={48} color={colors.textMuted} />
-          <Text style={styles.emptyText}>No memories saved yet.</Text>
+          <EmptyState icon="images-outline" title="No memories saved yet." />
         </View>
       )}
 
@@ -245,12 +254,13 @@ export function MemoryBoxScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   header: { padding: spacing.lg, paddingBottom: spacing.sm },
   title: { ...typography.title, color: colors.text },
   composer: { paddingHorizontal: spacing.lg, gap: spacing.sm },

@@ -20,7 +20,8 @@ from app.repositories.base import Repository
 
 _PROFILE_COLUMNS = (
     "id, display_name, avatar_url, home_region, travel_style, pace, "
-    "budget_bracket, role, onboarding_completed_at, created_at, updated_at"
+    "budget_bracket, travel_companion, trip_motivation, role, preferred_language, "
+    "onboarding_completed_at, created_at, updated_at"
 )
 
 
@@ -54,4 +55,25 @@ class ProfilesRepository(Repository):
             uuid.UUID(user_id),
         )
         assert row is not None  # INSERT ... RETURNING always yields exactly one row here
+        return dict(row)
+
+    async def update_preferred_language(
+        self, user_id: str, preferred_language: str
+    ) -> dict[str, object]:
+        """The database CHECK constraint (migration
+        20260828120002_add_preferred_language.sql) is the actual source of
+        truth for the allowed set — this repository does not duplicate that
+        list; an invalid value raises a constraint-violation error the
+        service layer maps to a 400."""
+        row = await self.fetchrow(
+            f"""
+            update public.profiles
+            set preferred_language = $2
+            where id = $1
+            returning {_PROFILE_COLUMNS};
+            """,
+            uuid.UUID(user_id),
+            preferred_language,
+        )
+        assert row is not None  # caller (auth_service) already verified the profile exists
         return dict(row)

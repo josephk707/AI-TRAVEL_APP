@@ -4,13 +4,17 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { bootstrapSession, fetchMyProfile, ProfileData } from "../api/auth";
 import { ApiError } from "../api/client";
-import { useAuth } from "../auth/AuthContext";
-import { Button } from "../components/Button";
+import { BottomNavBar } from "../components/BottomNavBar";
 import { Card } from "../components/Card";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
+import { IconBadge } from "../components/IconBadge";
 import { LoadingView } from "../components/LoadingView";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -20,32 +24,30 @@ type ProfileLoadState =
   | { status: "error"; message: string };
 
 /**
- * The authenticated landing screen. This is Phase 3's actual proof point:
- * a real mobile session token round-trips through FastAPI's cryptographic
- * JWT verification and comes back with this exact user's own row from
- * Postgres — POST /auth/session/bootstrap (idempotent load-or-create)
- * followed by GET /auth/me (docs/API_SPECIFICATION.md §2).
- *
- * Deliberately not a product screen — no trips, no AI, no maps (Phase 4+).
+ * The authenticated landing screen — the app's home hub, redesigned to
+ * the premium dark visual language while keeping its real data flow
+ * (POST /auth/session/bootstrap -> GET /auth/me) exactly as-is.
  */
 export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, "Home">>();
-  const { user, signOut } = useAuth();
+  const { t, syncFromServerProfile } = useTranslation();
   const [profileState, setProfileState] = useState<ProfileLoadState>({ status: "loading" });
-  const [signingOut, setSigningOut] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const loadProfile = useCallback(() => {
     bootstrapSession()
       .then(() => fetchMyProfile())
-      .then((profile) => setProfileState({ status: "success", profile }))
+      .then((profile) => {
+        setProfileState({ status: "success", profile });
+        // First-run/new-device language reconciliation — see
+        // LanguageContext's documented rule.
+        syncFromServerProfile(profile.preferred_language);
+      })
       .catch((error: unknown) => {
-        const message =
-          error instanceof ApiError
-            ? error.message
-            : "Unexpected error while loading your profile.";
+        const message = error instanceof ApiError ? error.message : t("common.somethingWentWrong");
         setProfileState({ status: "error", message });
       });
-  }, []);
+  }, [syncFromServerProfile, t]);
 
   useEffect(() => {
     loadProfile();
@@ -56,188 +58,155 @@ export function HomeScreen(): React.JSX.Element {
     loadProfile();
   }, [loadProfile]);
 
-  const handleSignOut = useCallback(() => {
-    setSigningOut(true);
-    void signOut();
-  }, [signOut]);
+  const displayName =
+    profileState.status === "success" ? profileState.profile.display_name : null;
+
+  const actions: {
+    icon: keyof typeof Ionicons.glyphMap;
+    title: string;
+    subtitle: string;
+    onPress: () => void;
+    testID: string;
+  }[] = [
+    {
+      icon: "airplane-outline",
+      title: t("home.planTrip"),
+      subtitle: t("home.planTripSubtitle"),
+      onPress: () => navigation.navigate("TripCreation"),
+      testID: "my-trips-button",
+    },
+    {
+      icon: "flash-outline",
+      title: t("home.quickPlan"),
+      subtitle: t("home.quickPlanSubtitle"),
+      onPress: () => navigation.navigate("QuickPlan"),
+      testID: "quick-plan-button",
+    },
+    {
+      icon: "map-outline",
+      title: t("home.explorePlaces"),
+      subtitle: t("home.explorePlacesSubtitle"),
+      onPress: () => navigation.navigate("Explore"),
+      testID: "explore-places-button",
+    },
+    {
+      icon: "language-outline",
+      title: t("home.translate"),
+      subtitle: t("home.translateSubtitle"),
+      onPress: () => navigation.navigate("Translate"),
+      testID: "translate-button",
+    },
+    {
+      icon: "heart-outline",
+      title: t("home.savedPlaces"),
+      subtitle: t("home.savedPlacesSubtitle"),
+      onPress: () => navigation.navigate("Collections"),
+      testID: "saved-places-button",
+    },
+    {
+      icon: "notifications-outline",
+      title: t("home.notifications"),
+      subtitle: t("home.notificationsSubtitle"),
+      onPress: () => navigation.navigate("Notifications"),
+      testID: "notifications-button",
+    },
+  ];
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <StatusBar style="auto" />
-      <Text style={styles.title}>Welcome</Text>
-      <Text style={styles.subtitle}>{user?.email ?? "Signed in"}</Text>
-
-      <Card style={styles.card}>
-        <Text style={styles.cardTitle}>Your profile</Text>
-
-        {profileState.status === "loading" && <LoadingView label="Loading your profile…" />}
-
-        {profileState.status === "success" && (
-          <View testID="profile-success">
-            <Text style={styles.detail}>User ID: {profileState.profile.id}</Text>
-            <Text style={styles.detail}>Role: {profileState.profile.role}</Text>
-            <Text style={styles.detail}>
-              Onboarding:{" "}
-              {profileState.profile.onboarding_completed_at ? "complete" : "not started"}
-            </Text>
-          </View>
-        )}
-
-        {profileState.status === "error" && (
-          <View testID="profile-error">
-            <Text style={styles.errorText}>{profileState.message}</Text>
-            <View style={styles.retryButton}>
-              <Button label="Retry" onPress={handleRetry} testID="profile-retry-button" />
-            </View>
-          </View>
-        )}
-      </Card>
-
-      <Pressable
-        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
-        onPress={() => navigation.navigate("TripsList")}
-        accessibilityRole="button"
-        testID="my-trips-button"
+    <GradientBackground>
+      <StatusBar style="light" />
+      <ScrollView
+        contentContainerStyle={[styles.container, { paddingTop: insets.top + spacing.md }]}
       >
-        <View style={styles.exploreIconBadge}>
-          <Ionicons name="airplane-outline" size={24} color={colors.primaryText} />
-        </View>
-        <View style={styles.exploreTextGroup}>
-          <Text style={styles.exploreTitle}>Plan a trip</Text>
-          <Text style={styles.exploreSubtitle}>
-            Let Yatra AI build you a personalised itinerary
+        <View>
+          <Text style={styles.greeting}>
+            {t("home.greeting")}
+            {displayName ? `, ${displayName}` : ""} 👋
           </Text>
+          <Text style={styles.subtitle}>{t("home.subtitlePrompt")}</Text>
         </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </Pressable>
 
-      <Pressable
-        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
-        onPress={() => navigation.navigate("QuickPlan")}
-        accessibilityRole="button"
-        testID="quick-plan-button"
-      >
-        <View style={styles.exploreIconBadge}>
-          <Ionicons name="flash-outline" size={24} color={colors.primaryText} />
-        </View>
-        <View style={styles.exploreTextGroup}>
-          <Text style={styles.exploreTitle}>Quick plan</Text>
-          <Text style={styles.exploreSubtitle}>A short local outing, planned in seconds</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </Pressable>
+        <Card style={styles.card}>
+          <Text style={styles.cardTitle}>{t("home.yourProfile")}</Text>
 
-      <Pressable
-        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
-        onPress={() => navigation.navigate("Explore")}
-        accessibilityRole="button"
-        testID="explore-places-button"
-      >
-        <View style={styles.exploreIconBadge}>
-          <Ionicons name="map-outline" size={24} color={colors.primaryText} />
-        </View>
-        <View style={styles.exploreTextGroup}>
-          <Text style={styles.exploreTitle}>Explore places</Text>
-          <Text style={styles.exploreSubtitle}>Search heritage sites, food, and more nearby</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </Pressable>
+          {profileState.status === "loading" && <LoadingView label={t("home.loadingProfile")} />}
 
-      <Pressable
-        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
-        onPress={() => navigation.navigate("Translate")}
-        accessibilityRole="button"
-        testID="translate-button"
-      >
-        <View style={styles.exploreIconBadge}>
-          <Ionicons name="language-outline" size={24} color={colors.primaryText} />
-        </View>
-        <View style={styles.exploreTextGroup}>
-          <Text style={styles.exploreTitle}>Translate a phrase</Text>
-          <Text style={styles.exploreSubtitle}>Hindi, Telugu, Malayalam, Kannada, and more</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </Pressable>
+          {profileState.status === "success" && (
+            <View testID="profile-success" style={styles.profileRow}>
+              <Text style={styles.detail}>
+                {t("home.role")}: {profileState.profile.role}
+              </Text>
+              <Text style={styles.detail}>
+                {t("home.onboarding")}:{" "}
+                {profileState.profile.onboarding_completed_at
+                  ? t("home.complete")
+                  : t("home.notStarted")}
+              </Text>
+            </View>
+          )}
 
-      <Pressable
-        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
-        onPress={() => navigation.navigate("Collections")}
-        accessibilityRole="button"
-        testID="saved-places-button"
-      >
-        <View style={styles.exploreIconBadge}>
-          <Ionicons name="heart-outline" size={24} color={colors.primaryText} />
-        </View>
-        <View style={styles.exploreTextGroup}>
-          <Text style={styles.exploreTitle}>Saved places</Text>
-          <Text style={styles.exploreSubtitle}>Your favorites and collections</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </Pressable>
+          {profileState.status === "error" && (
+            <View testID="profile-error">
+              <ErrorState
+                message={profileState.message}
+                retryLabel={t("common.retry")}
+                onRetry={handleRetry}
+                testID="profile-retry-button"
+              />
+            </View>
+          )}
+        </Card>
 
-      <Pressable
-        style={({ pressed }) => [styles.exploreCard, pressed && styles.exploreCardPressed]}
-        onPress={() => navigation.navigate("Notifications")}
-        accessibilityRole="button"
-        testID="notifications-button"
-      >
-        <View style={styles.exploreIconBadge}>
-          <Ionicons name="notifications-outline" size={24} color={colors.primaryText} />
+        <View style={styles.actionsList}>
+          {actions.map((action) => (
+            <Pressable
+              key={action.testID}
+              style={({ pressed }) => [styles.actionCard, pressed && styles.actionCardPressed]}
+              onPress={action.onPress}
+              accessibilityRole="button"
+              testID={action.testID}
+            >
+              <IconBadge icon={action.icon} />
+              <View style={styles.actionTextGroup}>
+                <Text style={styles.actionTitle}>{action.title}</Text>
+                <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.textFaint} />
+            </Pressable>
+          ))}
         </View>
-        <View style={styles.exploreTextGroup}>
-          <Text style={styles.exploreTitle}>Notifications</Text>
-          <Text style={styles.exploreSubtitle}>Arrivals, reminders, and updates</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-      </Pressable>
-
-      <View style={styles.signOutButton}>
-        <Button
-          label={signingOut ? "Signing out…" : "Sign out"}
-          onPress={handleSignOut}
-          disabled={signingOut}
-          testID="sign-out-button"
-        />
-      </View>
-    </ScrollView>
+      </ScrollView>
+      <BottomNavBar active="Home" />
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
-    backgroundColor: colors.background,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
     gap: spacing.md,
   },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.md },
+  greeting: { ...typography.title, color: colors.text },
+  subtitle: { ...typography.body, color: colors.textMuted, marginTop: spacing.xs },
   card: { gap: spacing.sm },
   cardTitle: { ...typography.subtitle, color: colors.text },
-  errorText: { ...typography.subtitle, color: colors.error },
-  detail: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
-  retryButton: { marginTop: spacing.md, alignSelf: "flex-start" },
-  exploreCard: {
+  profileRow: { gap: spacing.xs },
+  detail: { ...typography.caption, color: colors.textMuted },
+  actionsList: { gap: spacing.sm },
+  actionCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
   },
-  exploreCardPressed: { opacity: 0.85 },
-  exploreIconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: radius.md,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  exploreTextGroup: { flex: 1, gap: 2 },
-  exploreTitle: { ...typography.subtitle, color: colors.text },
-  exploreSubtitle: { ...typography.caption, color: colors.textMuted },
-  signOutButton: { alignSelf: "flex-start", marginTop: spacing.sm },
+  actionCardPressed: { backgroundColor: colors.surfaceAlt },
+  actionTextGroup: { flex: 1, gap: 2 },
+  actionTitle: { ...typography.subtitle, color: colors.text },
+  actionSubtitle: { ...typography.caption, color: colors.textMuted },
 });

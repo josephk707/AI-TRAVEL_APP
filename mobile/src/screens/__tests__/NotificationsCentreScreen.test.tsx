@@ -10,6 +10,11 @@ jest.mock("../../api/notifications", () => ({
   markNotificationRead: jest.fn(),
 }));
 
+jest.mock("@react-navigation/native", () => ({
+  ...jest.requireActual("@react-navigation/native"),
+  useNavigation: () => ({ goBack: jest.fn() }),
+}));
+
 const mockListNotifications = listNotifications as jest.Mock;
 const mockMarkNotificationRead = markNotificationRead as jest.Mock;
 

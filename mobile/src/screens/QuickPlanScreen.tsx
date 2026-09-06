@@ -8,6 +8,7 @@ import { ApiError } from "../api/client";
 import { createQuickPlan, QuickPlan, saveQuickPlanToCollection } from "../api/quickPlans";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { GradientBackground } from "../components/GradientBackground";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
 type ResultState =
@@ -79,8 +80,9 @@ export function QuickPlanScreen(): React.JSX.Element {
   }, [result]);
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-      <StatusBar style="dark" />
+    <GradientBackground>
+      <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+      <StatusBar style="light" />
       <Text style={styles.title}>Quick plan</Text>
       <Text style={styles.subtitle}>A short local outing, planned in seconds.</Text>
 
@@ -144,12 +146,13 @@ export function QuickPlanScreen(): React.JSX.Element {
           {saveResult && <Text style={styles.hintText}>{saveResult}</Text>}
         </Card>
       )}
-    </ScrollView>
+      </ScrollView>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   content: { padding: spacing.lg, gap: spacing.md },
   title: { ...typography.title, color: colors.text },
   subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
@@ -158,7 +161,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
     padding: spacing.sm + 2,
     color: colors.text,

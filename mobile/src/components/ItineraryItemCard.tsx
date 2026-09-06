@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   badge: {
     ...typography.caption,
     color: colors.text,
-    backgroundColor: colors.background,
+    backgroundColor: colors.surfaceAlt,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.xs,
     paddingVertical: 2,

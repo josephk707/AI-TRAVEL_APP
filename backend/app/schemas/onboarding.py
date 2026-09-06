@@ -35,6 +35,12 @@ from pydantic import BaseModel, Field
 TravelStyle = Literal["planned", "flexible", "spontaneous"]
 Pace = Literal["relaxed", "balanced", "packed"]
 BudgetBracket = Literal["budget", "mid", "premium"]
+# Final Personalization phase — two new onboarding questions, bringing the
+# total from 4 to 6 (interests, travel_style, pace, budget_bracket,
+# travel_companion, trip_motivation), per this phase's explicit "5-6
+# meaningful questions" target. Same pattern as the existing three enums:
+# a small, documented, non-overlapping value set.
+TravelCompanion = Literal["solo", "family", "friends", "couple", "flexible"]
 
 
 class InterestResponse(BaseModel):
@@ -53,6 +59,12 @@ class OnboardingResponsesRequest(BaseModel):
     travel_style: TravelStyle | None = None
     pace: Pace | None = None
     budget_bracket: BudgetBracket | None = None
+    travel_companion: TravelCompanion | None = None
+    # Free text — deliberately NOT constrained to a fixed enum (the PRD's
+    # own "conversational question" intent). Capped to match the DB
+    # CHECK constraint (migration 20260828120003) — a generous limit for
+    # "what makes a trip special for you?", not a full essay field.
+    trip_motivation: str | None = Field(default=None, max_length=500)
 
 
 class OnboardingResponseData(BaseModel):
@@ -62,6 +74,8 @@ class OnboardingResponseData(BaseModel):
     travel_style: str | None
     pace: str | None
     budget_bracket: str | None
+    travel_companion: str | None
+    trip_motivation: str | None
 
 
 class OnboardingStatusResponse(BaseModel):

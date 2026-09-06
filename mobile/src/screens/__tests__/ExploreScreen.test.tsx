@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import * as Location from "expo-location";
 import React from "react";
 
 import { ApiError } from "../../api/client";
-import { searchPois } from "../../api/pois";
+import { fetchNearbyPois, searchPois } from "../../api/pois";
 import { ExploreScreen } from "../ExploreScreen";
 
 const mockNavigate = jest.fn();
@@ -13,9 +14,26 @@ jest.mock("@react-navigation/native", () => ({
 
 jest.mock("../../api/pois", () => ({
   searchPois: jest.fn(),
+  fetchNearbyPois: jest.fn(),
 }));
 
+jest.mock("expo-location", () => ({
+  requestForegroundPermissionsAsync: jest.fn(),
+  getCurrentPositionAsync: jest.fn(),
+}));
+
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  return { useTranslation: () => ({ t }) };
+});
+
 const mockSearchPois = searchPois as jest.Mock;
+const mockFetchNearbyPois = fetchNearbyPois as jest.Mock;
+const mockRequestPermission = Location.requestForegroundPermissionsAsync as jest.Mock;
+const mockGetCurrentPosition = Location.getCurrentPositionAsync as jest.Mock;
 
 const HERITAGE_POI = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -151,5 +169,66 @@ describe("ExploreScreen", () => {
     fireEvent.press(screen.getByTestId(`poi-card-${HERITAGE_POI.id}`));
 
     expect(mockNavigate).toHaveBeenCalledWith("PoiDetail", { poiId: HERITAGE_POI.id });
+  });
+
+  // -------------------------------------------------------------------
+  // Maps Integration phase — "use my location" (real device location ->
+  // GET /v1/pois/nearby, live-augmented via Geoapify on the backend)
+  // -------------------------------------------------------------------
+  it("requests location and shows real nearby places when granted", async () => {
+    mockRequestPermission.mockResolvedValue({ granted: true });
+    mockGetCurrentPosition.mockResolvedValue({
+      coords: { latitude: 12.3052, longitude: 76.6552 },
+    });
+    mockFetchNearbyPois.mockResolvedValue({
+      pois: [HERITAGE_POI],
+      degraded: false,
+      message: null,
+    });
+
+    await render(<ExploreScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("explore-locate-button"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("explore-results-list")).toBeTruthy());
+    expect(mockFetchNearbyPois).toHaveBeenCalledWith(
+      expect.objectContaining({ lat: 12.3052, lng: 76.6552, radiusM: 5000 }),
+    );
+    expect(screen.getByTestId(`poi-card-${HERITAGE_POI.id}`)).toBeTruthy();
+  });
+
+  it("shows a typed error state when location permission is denied", async () => {
+    mockRequestPermission.mockResolvedValue({ granted: false });
+
+    await render(<ExploreScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("explore-locate-button"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("explore-error")).toBeTruthy());
+    expect(mockFetchNearbyPois).not.toHaveBeenCalled();
+  });
+
+  it("shows the degraded-mode banner when nearby live augmentation is unavailable", async () => {
+    mockRequestPermission.mockResolvedValue({ granted: true });
+    mockGetCurrentPosition.mockResolvedValue({
+      coords: { latitude: 12.3052, longitude: 76.6552 },
+    });
+    mockFetchNearbyPois.mockResolvedValue({
+      pois: [HERITAGE_POI],
+      degraded: true,
+      message: "Live nearby search is temporarily unavailable — showing curated results only.",
+    });
+
+    await render(<ExploreScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId("explore-locate-button"));
+    });
+
+    await waitFor(() => expect(screen.getByTestId("explore-degraded-banner")).toBeTruthy());
   });
 });

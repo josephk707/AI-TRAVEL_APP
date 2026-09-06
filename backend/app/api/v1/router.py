@@ -23,6 +23,7 @@ from app.api.v1 import (
     notifications,
     offline,
     onboarding,
+    personalization,
     phrasebook,
     pois,
     quick_plans,
@@ -30,6 +31,7 @@ from app.api.v1 import (
     safety,
     translation,
     trips,
+    weather,
 )
 
 api_v1_router = APIRouter()
@@ -52,3 +54,5 @@ api_v1_router.include_router(safety.router)
 api_v1_router.include_router(disruptions.router)
 api_v1_router.include_router(quick_plans.router)
 api_v1_router.include_router(offline.router)
+api_v1_router.include_router(weather.router)
+api_v1_router.include_router(personalization.router)

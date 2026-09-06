@@ -21,7 +21,7 @@ module.exports = {
     version: "0.1.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
-    userInterfaceStyle: "light",
+    userInterfaceStyle: "dark",
     ios: {
       supportsTablet: true,
       config: googleMapsSdkKey ? { googleMapsApiKey: googleMapsSdkKey } : undefined,
@@ -52,6 +52,7 @@ module.exports = {
         },
       ],
       "expo-notifications",
+      "expo-localization",
     ],
   },
 };

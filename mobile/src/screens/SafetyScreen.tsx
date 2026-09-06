@@ -4,6 +4,7 @@ import type { RouteProp } from "@react-navigation/native";
 import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ApiError } from "../api/client";
 import {
@@ -16,7 +17,10 @@ import {
 } from "../api/safety";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
+import { ErrorState } from "../components/ErrorState";
+import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
 
@@ -31,6 +35,7 @@ type LoadState =
 export function SafetyScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "Safety">>();
   const { tripId } = route.params;
+  const insets = useSafeAreaInsets();
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [name, setName] = useState("");
@@ -131,11 +136,10 @@ export function SafetyScreen(): React.JSX.Element {
   }, [tripId]);
 
   return (
-    <View style={styles.flex}>
-      <StatusBar style="dark" />
-      <View style={styles.header}>
-        <Text style={styles.title}>Safety</Text>
-      </View>
+    <GradientBackground>
+      <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
+      <StatusBar style="light" />
+      <ScreenHeader title="Safety" />
 
       <Pressable
         style={[styles.sosButton, sosSending && styles.sosButtonDisabled]}
@@ -180,8 +184,7 @@ export function SafetyScreen(): React.JSX.Element {
 
       {state.status === "error" && (
         <View style={styles.centered} testID="safety-error">
-          <Text style={styles.errorText}>{state.message}</Text>
-          <Button label="Retry" onPress={load} testID="safety-retry-button" />
+          <ErrorState message={state.message} retryLabel="Retry" onRetry={load} testID="safety-retry-button" />
         </View>
       )}
 
@@ -231,14 +234,13 @@ export function SafetyScreen(): React.JSX.Element {
           )}
         />
       )}
-    </View>
+      </View>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
-  header: { padding: spacing.lg, paddingBottom: spacing.sm },
-  title: { ...typography.title, color: colors.text },
+  flex: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
   errorText: { ...typography.body, color: colors.error, marginHorizontal: spacing.lg },
   sosButton: {

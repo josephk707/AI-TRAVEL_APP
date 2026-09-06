@@ -33,6 +33,18 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         "app_startup",
         extra={"environment": settings.environment, "version": settings.app_version},
     )
+    # Operational visibility for the AI provider: a BOOLEAN and the
+    # configured model names only. The key itself is never logged — it is a
+    # SecretStr (app/core/config.py) whose value is read in exactly one
+    # place (app/services/ai/factory.py) and handed straight to the
+    # provider SDK. Embedded in the message rather than `extra=` because
+    # StructuredFormatter renders only the message (app/core/logging.py).
+    logger.info(
+        f"ai_provider_configured provider={settings.llm_provider} "
+        f"gemini_configured={'YES' if settings.gemini_api_key is not None else 'NO'} "
+        f"text_model={settings.gemini_text_model} "
+        f"embedding_model={settings.gemini_embedding_model}"
+    )
     # A missing/unreachable database must never prevent the API process
     # itself from starting — create_pool() returns None rather than
     # raising if DATABASE_URL is unset or unreachable (see app/db/session.py).

@@ -70,6 +70,8 @@ async def _save(user_id: str, payload: OnboardingResponsesRequest) -> dict[str, 
         travel_style=payload.travel_style,
         pace=payload.pace,
         budget_bracket=payload.budget_bracket,
+        travel_companion=payload.travel_companion,
+        trip_motivation=payload.trip_motivation,
     )
 
 
@@ -103,6 +105,8 @@ async def submit_responses(
             travel_style=payload.travel_style,
             pace=payload.pace,
             budget_bracket=payload.budget_bracket,
+            travel_companion=payload.travel_companion,
+            trip_motivation=payload.trip_motivation,
         )
         return data, False
 
@@ -114,5 +118,7 @@ async def submit_responses(
         travel_style=row["travel_style"],  # type: ignore[arg-type]
         pace=row["pace"],  # type: ignore[arg-type]
         budget_bracket=row["budget_bracket"],  # type: ignore[arg-type]
+        travel_companion=row["travel_companion"],  # type: ignore[arg-type]
+        trip_motivation=row["trip_motivation"],  # type: ignore[arg-type]
     )
     return data, True

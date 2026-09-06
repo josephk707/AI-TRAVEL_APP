@@ -80,7 +80,22 @@ describe("fetchNearbyPois", () => {
     expect(calledUrl).toContain("lat=27.17");
     expect(calledUrl).toContain("lng=78.04");
     expect(calledUrl).toContain("radius_m=2000");
-    expect(result).toEqual([SAMPLE_POI]);
+    expect(result).toEqual({ pois: [SAMPLE_POI], degraded: false, message: null });
+  });
+
+  it("surfaces degraded_mode/message from the response envelope's meta", async () => {
+    mockApiGet.mockResolvedValue({
+      data: [],
+      meta: { degraded_mode: true, message: "Live nearby search is temporarily unavailable." },
+    });
+
+    const result = await fetchNearbyPois({ lat: 27.17, lng: 78.04 });
+
+    expect(result).toEqual({
+      pois: [],
+      degraded: true,
+      message: "Live nearby search is temporarily unavailable.",
+    });
   });
 });
 

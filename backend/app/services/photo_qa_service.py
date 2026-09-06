@@ -19,7 +19,9 @@ from app.core.exceptions import AppError, UpstreamUnavailableError
 from app.repositories.ai_conversations_repository import AiConversationsRepository
 from app.repositories.heritage_repository import HeritageRepository
 from app.repositories.pois_repository import PoisRepository
+from app.repositories.profiles_repository import ProfilesRepository
 from app.services.ai.factory import get_llm_gateway
+from app.services.ai.language import language_instruction
 from app.services.ai.llm_gateway import (
     GenerationConfig,
     LLMImage,
@@ -54,7 +56,11 @@ def validate_image(image_bytes: bytes, mime_type: str) -> None:
 
 
 async def answer_photo_question(
-    poi_id: str | None, question: str, image_bytes: bytes, image_mime_type: str
+    poi_id: str | None,
+    question: str,
+    image_bytes: bytes,
+    image_mime_type: str,
+    user_id: str | None = None,
 ) -> dict:
     validate_image(image_bytes, image_mime_type)
 
@@ -73,10 +79,17 @@ async def answer_photo_question(
             poi_name = poi["name"]
             chunks = await HeritageRepository().get_published_content(poi_id, "overview")
 
+    preferred_language: str | None = None
+    if user_id:
+        profile = await ProfilesRepository().get_by_id(user_id)
+        raw_language = (profile or {}).get("preferred_language")
+        preferred_language = str(raw_language) if raw_language else None
+    system_prompt = photo_qa_prompts.SYSTEM_PROMPT + language_instruction(preferred_language)
+
     try:
         response = await gateway.complete_multimodal(
             [
-                LLMMessage(MessageRole.SYSTEM, photo_qa_prompts.SYSTEM_PROMPT),
+                LLMMessage(MessageRole.SYSTEM, system_prompt),
                 LLMMessage(
                     MessageRole.USER,
                     photo_qa_prompts.build_user_message(question, poi_name, chunks),

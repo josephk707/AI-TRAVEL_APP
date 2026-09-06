@@ -7,13 +7,21 @@ import { fetchItinerary, fetchTrip, ItineraryDay, Trip } from "../../api/trips";
 import { ItineraryViewScreen } from "../ItineraryViewScreen";
 
 const mockNavigate = jest.fn();
-const mockNavigation = { navigate: mockNavigate };
+const mockNavigation = { navigate: mockNavigate, goBack: jest.fn() };
 const mockRoute = { params: { tripId: "trip-1" } };
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useNavigation: () => mockNavigation,
   useRoute: () => mockRoute,
 }));
+
+jest.mock("../../i18n", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { en } = require("../../i18n/locales/en");
+  const t = (key: string): unknown =>
+    key.split(".").reduce((acc: unknown, part: string) => (acc as never)?.[part], en) ?? key;
+  return { useTranslation: () => ({ t }) };
+});
 
 jest.mock("../../api/trips", () => ({
   fetchTrip: jest.fn(),

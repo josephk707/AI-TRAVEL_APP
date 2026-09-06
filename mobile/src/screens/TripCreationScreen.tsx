@@ -17,9 +17,13 @@ import { fetchInterests, InterestOption } from "../api/onboarding";
 import { ApiError } from "../api/client";
 import { createTrip, submitTripNotes } from "../api/trips";
 import { Button } from "../components/Button";
+import { GradientBackground } from "../components/GradientBackground";
+import { ScreenHeader } from "../components/ScreenHeader";
 import { SelectableChip } from "../components/SelectableChip";
+import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
 import { colors, radius, spacing, typography } from "../theme/tokens";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 /** F3/F4 entry point — "destination/dates/budget/interests + 'my own ideas'
  * input" (MOBILE_ARCHITECTURE.md §2 TripCreationScreen). Interests default
@@ -28,6 +32,8 @@ import { colors, radius, spacing, typography } from "../theme/tokens";
 export function TripCreationScreen(): React.JSX.Element {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList, "TripCreation">>();
+  const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const [title, setTitle] = useState("");
   const [destination, setDestination] = useState("");
@@ -76,24 +82,25 @@ export function TripCreationScreen(): React.JSX.Element {
         useOwnIdeas: ownIdeas.trim().length > 0,
       });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't create this trip.");
+      setError(err instanceof ApiError ? err.message : t("tripCreation.couldntCreateTrip"));
       setSubmitting(false);
     }
-  }, [title, destination, startDate, endDate, budget, ownIdeas, selectedInterestSlugs, navigation]);
+  }, [title, destination, startDate, endDate, budget, ownIdeas, selectedInterestSlugs, navigation, t]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <StatusBar style="dark" />
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Plan a new trip</Text>
-        <Text style={styles.subtitle}>
-          Tell Yatra AI where you are headed — it will build a personalised itinerary.
-        </Text>
+    <GradientBackground>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <StatusBar style="light" />
+        <View style={{ paddingTop: insets.top + spacing.sm }}>
+          <ScreenHeader title={t("tripCreation.title")} />
+        </View>
+        <ScrollView contentContainerStyle={styles.container}>
+          <Text style={styles.subtitle}>{t("tripCreation.subtitle")}</Text>
 
-        <Text style={styles.label}>Trip title</Text>
+          <Text style={styles.label}>{t("tripCreation.tripTitleLabel")}</Text>
         <TextInput
           style={styles.input}
           placeholder="Agra Weekend"
@@ -103,7 +110,7 @@ export function TripCreationScreen(): React.JSX.Element {
           testID="trip-title-input"
         />
 
-        <Text style={styles.label}>Destination</Text>
+          <Text style={styles.label}>{t("tripCreation.destinationLabel")}</Text>
         <TextInput
           style={styles.input}
           placeholder="Agra, India"
@@ -115,7 +122,7 @@ export function TripCreationScreen(): React.JSX.Element {
 
         <View style={styles.row}>
           <View style={styles.rowItem}>
-            <Text style={styles.label}>Start date</Text>
+              <Text style={styles.label}>{t("tripCreation.startDateLabel")}</Text>
             <TextInput
               style={styles.input}
               placeholder="2026-10-10"
@@ -126,7 +133,7 @@ export function TripCreationScreen(): React.JSX.Element {
             />
           </View>
           <View style={styles.rowItem}>
-            <Text style={styles.label}>End date</Text>
+              <Text style={styles.label}>{t("tripCreation.endDateLabel")}</Text>
             <TextInput
               style={styles.input}
               placeholder="2026-10-13"
@@ -138,7 +145,7 @@ export function TripCreationScreen(): React.JSX.Element {
           </View>
         </View>
 
-        <Text style={styles.label}>Budget (INR)</Text>
+          <Text style={styles.label}>{t("tripCreation.budgetLabel")}</Text>
         <TextInput
           style={styles.input}
           placeholder="15000"
@@ -149,7 +156,7 @@ export function TripCreationScreen(): React.JSX.Element {
           testID="trip-budget-input"
         />
 
-        <Text style={styles.label}>Interests for this trip</Text>
+          <Text style={styles.label}>{t("tripCreation.interestsLabel")}</Text>
         <View style={styles.chipGrid}>
           {interests.map((interest) => (
             <SelectableChip
@@ -162,10 +169,10 @@ export function TripCreationScreen(): React.JSX.Element {
           ))}
         </View>
 
-        <Text style={styles.label}>Your own ideas (optional)</Text>
+          <Text style={styles.label}>{t("tripCreation.ownIdeasLabel")}</Text>
         <TextInput
           style={[styles.input, styles.textarea]}
-          placeholder="e.g. I really want to see the Taj Mahal at sunrise, and try local street food…"
+          placeholder={t("tripCreation.ownIdeasPlaceholder")}
           placeholderTextColor={colors.textMuted}
           value={ownIdeas}
           onChangeText={setOwnIdeas}
@@ -182,22 +189,24 @@ export function TripCreationScreen(): React.JSX.Element {
 
         <View style={styles.submitRow}>
           <Button
-            label={submitting ? "" : "Start planning"}
+              label={submitting ? "" : t("tripCreation.startPlanning")}
             onPress={() => void handleSubmit()}
             disabled={!canSubmit}
             testID="trip-submit-button"
+              fullWidth={false}
           />
           {submitting && (
             <ActivityIndicator size="small" color={colors.primaryText} style={styles.spinner} />
           )}
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </GradientBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   container: { padding: spacing.lg, gap: spacing.sm },
   title: { ...typography.title, color: colors.text },
   subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },

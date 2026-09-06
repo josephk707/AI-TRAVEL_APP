@@ -24,7 +24,7 @@ export function ConfidenceBadge({ confidence, testID }: Props): React.JSX.Elemen
 
 const styles = StyleSheet.create({
   badge: {
-    backgroundColor: "#FCF3D9",
+    backgroundColor: colors.warningSoft,
     borderRadius: radius.md,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.sm,

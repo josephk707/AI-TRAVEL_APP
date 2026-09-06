@@ -5,7 +5,7 @@ step)."""
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 
 import pytest
 
@@ -194,3 +194,44 @@ async def test_apply_weather_flags_unknown_forecast_does_not_flag(
     by_day = {1: [{"poi_category": "heritage", "poi_lat": 1.0, "poi_lng": 2.0}]}
     await br.apply_weather_flags(by_day, {1: date(2026, 10, 10)})
     assert by_day[1][0].get("weather_flag") is None
+
+
+# ---------------------------------------------------------------------------
+# Time parsing accepts BOTH the LLM's "HH:MM" strings and the
+# `datetime.time` objects asyncpg returns for a `time` column.
+#
+# Regression guard (Gemini certification pass): only the string form was
+# handled, so on the F5 modification path — whose items come straight from
+# the database — every time parsed as None and the overlap/travel-time
+# checks silently found nothing at all.
+# ---------------------------------------------------------------------------
+def test_minutes_since_midnight_parses_a_string_time() -> None:
+    assert br.minutes_since_midnight("09:30") == 570
+
+
+def test_minutes_since_midnight_parses_a_database_time_object() -> None:
+    assert br.minutes_since_midnight(time(9, 30)) == 570
+
+
+def test_minutes_since_midnight_absent_or_unparseable_is_none() -> None:
+    assert br.minutes_since_midnight(None) is None
+    assert br.minutes_since_midnight("") is None
+    assert br.minutes_since_midnight("not-a-time") is None
+
+
+def test_string_and_database_time_parse_identically() -> None:
+    assert br.minutes_since_midnight(time(16, 30)) == br.minutes_since_midnight("16:30")
+
+
+def test_check_item_overlaps_detects_overlap_across_mixed_time_types() -> None:
+    """The exact shape the F5 modification path builds: stored items carry
+    `datetime.time`, the model's proposed replacement carries "HH:MM"."""
+    by_day = {
+        1: [
+            {"poi_name": "A", "planned_start": time(9, 0), "planned_end": time(11, 0)},
+            {"poi_name": "B", "planned_start": "10:00", "planned_end": "12:00"},
+        ]
+    }
+    conflicts = br.check_item_overlaps(by_day)
+    assert len(conflicts) == 1
+    assert "B" in conflicts[0]

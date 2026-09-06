@@ -152,6 +152,50 @@ async def test_get_me_returns_this_exact_users_own_profile(
     assert profile["role"] == "traveller"
 
 
+async def test_get_me_defaults_preferred_language_to_en(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    response = await client.get("/v1/auth/me", headers=real_session.auth_header)
+    assert response.status_code == 200
+    assert response.json()["data"]["preferred_language"] == "en"
+
+
+# ---------------------------------------------------------------------------
+# PATCH /v1/auth/me — Language Settings phase: a real, persisted update,
+# not just a 200 with no actual database write.
+# ---------------------------------------------------------------------------
+async def test_patch_me_persists_preferred_language(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    response = await client.patch(
+        "/v1/auth/me", json={"preferred_language": "hi"}, headers=real_session.auth_header
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["preferred_language"] == "hi"
+
+    # Re-fetch on a separate request to prove this was a real write, not
+    # just an echoed request body.
+    refetch = await client.get("/v1/auth/me", headers=real_session.auth_header)
+    assert refetch.json()["data"]["preferred_language"] == "hi"
+
+
+async def test_patch_me_rejects_an_unsupported_language_code(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    response = await client.patch(
+        "/v1/auth/me", json={"preferred_language": "xx"}, headers=real_session.auth_header
+    )
+    assert response.status_code == 400
+    # Confirms the rejected value was never written.
+    refetch = await client.get("/v1/auth/me", headers=real_session.auth_header)
+    assert refetch.json()["data"]["preferred_language"] == "en"
+
+
+async def test_patch_me_rejects_a_request_with_no_authorization_header(client: AsyncClient) -> None:
+    response = await client.patch("/v1/auth/me", json={"preferred_language": "hi"})
+    assert response.status_code == 401
+
+
 async def test_two_different_real_users_get_two_different_profiles(
     client: AsyncClient, two_real_sessions: tuple[_RealSession, _RealSession]
 ) -> None:

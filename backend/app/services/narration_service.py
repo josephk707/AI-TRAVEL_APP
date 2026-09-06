@@ -32,7 +32,9 @@ from app.core.config import get_settings
 from app.core.exceptions import AppError, NotFoundError, UpstreamUnavailableError
 from app.repositories.heritage_repository import HeritageRepository
 from app.repositories.pois_repository import PoisRepository
+from app.repositories.profiles_repository import ProfilesRepository
 from app.services.ai.factory import get_llm_gateway
+from app.services.ai.language import language_instruction
 from app.services.ai.llm_gateway import GenerationConfig, LLMMessage, LLMProviderError, MessageRole
 from app.services.ai.prompts import narration as narration_prompts
 
@@ -51,7 +53,9 @@ def _poi_not_covered(poi_name: str) -> AppError:
     )
 
 
-async def get_narration(poi_id: str, layer: str, section: str | None) -> dict[str, Any]:
+async def get_narration(
+    poi_id: str, layer: str, section: str | None, user_id: str | None = None
+) -> dict[str, Any]:
     poi = await PoisRepository().get_by_id(poi_id)
     if poi is None:
         raise NotFoundError("This place could not be found.")
@@ -104,10 +108,17 @@ async def get_narration(poi_id: str, layer: str, section: str | None) -> dict[st
             details={"code": "NARRATION_NOT_CONFIGURED"},
         )
 
+    preferred_language: str | None = None
+    if user_id:
+        profile = await ProfilesRepository().get_by_id(user_id)
+        raw_language = (profile or {}).get("preferred_language")
+        preferred_language = str(raw_language) if raw_language else None
+    system_prompt = narration_prompts.SYSTEM_PROMPT + language_instruction(preferred_language)
+
     try:
         response = await gateway.complete(
             [
-                LLMMessage(MessageRole.SYSTEM, narration_prompts.SYSTEM_PROMPT),
+                LLMMessage(MessageRole.SYSTEM, system_prompt),
                 LLMMessage(
                     MessageRole.USER,
                     narration_prompts.build_user_message(poi["name"], layer, section, chunks),

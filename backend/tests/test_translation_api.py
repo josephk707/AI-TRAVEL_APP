@@ -122,3 +122,38 @@ async def test_translate_with_no_gemini_key_configured_returns_503_not_a_crash(
     )
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "UPSTREAM_UNAVAILABLE"
+
+
+async def test_translate_accepts_exactly_two_sentences(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    """Final Personalization phase (Part 8/9) — the two-sentence prototype
+    limit accepts exactly two real sentences (this only reaches the real
+    503/200 provider path, so it must NOT be rejected at 400 for being
+    "too long")."""
+    response = await client.post(
+        "/v1/translate/text",
+        json={
+            "text": "Where is the nearest railway station? How much does this cost?",
+            "target_language": "Hindi",
+        },
+        headers=real_session.auth_header,
+    )
+    assert response.status_code != 400
+
+
+async def test_translate_rejects_more_than_two_sentences(
+    client: AsyncClient, real_session: _RealSession
+) -> None:
+    response = await client.post(
+        "/v1/translate/text",
+        json={
+            "text": (
+                "Where is the nearest railway station? How much does this cost? "
+                "Can I pay by card?"
+            ),
+            "target_language": "Hindi",
+        },
+        headers=real_session.auth_header,
+    )
+    assert response.status_code == 400

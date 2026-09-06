@@ -37,8 +37,9 @@ from app.repositories.pois_repository import PoisRepository
 from app.repositories.profiles_repository import ProfilesRepository
 from app.repositories.trips_repository import TripsRepository
 from app.schemas.trips import ItineraryGenerateRequest
-from app.services import analytics_service, business_rules
+from app.services import analytics_service, business_rules, personalization_service
 from app.services.ai.factory import get_llm_gateway
+from app.services.ai.language import language_instruction
 from app.services.ai.llm_gateway import GenerationConfig, LLMMessage, LLMProviderError, MessageRole
 from app.services.ai.prompts import itinerary as itinerary_prompts
 
@@ -210,9 +211,22 @@ async def generate_itinerary(
         items = _build_fallback_itinerary(candidates, day_count)
     else:
         try:
+            preferred_language = context["profile"].get("preferred_language")
+            system_prompt = itinerary_prompts.SYSTEM_PROMPT + language_instruction(
+                str(preferred_language) if preferred_language else None
+            )
+            # Final Personalization phase — a short, real, previously-computed
+            # summary of this exact traveller (never a second AI call on this
+            # hot path; see personalization_service.get_personalization_context's
+            # own docstring). None for a user who has never opened their Travel
+            # DNA screen — itinerary generation degrades to its pre-existing
+            # behavior exactly as before this phase.
+            personalization_summary = await personalization_service.get_personalization_context(
+                user_id
+            )
             response = await gateway.complete(
                 [
-                    LLMMessage(MessageRole.SYSTEM, itinerary_prompts.SYSTEM_PROMPT),
+                    LLMMessage(MessageRole.SYSTEM, system_prompt),
                     LLMMessage(
                         MessageRole.USER,
                         itinerary_prompts.build_user_message(
@@ -227,6 +241,7 @@ async def generate_itinerary(
                             pace=context["profile"].get("pace"),
                             candidates=candidates,
                             own_ideas_text=own_ideas_text,
+                            personalization_summary=personalization_summary,
                         ),
                     ),
                 ],

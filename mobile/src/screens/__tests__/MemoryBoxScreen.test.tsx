@@ -11,6 +11,7 @@ import { MemoryBoxScreen } from "../MemoryBoxScreen";
 jest.mock("@react-navigation/native", () => ({
   ...jest.requireActual("@react-navigation/native"),
   useRoute: () => ({ params: { tripId: "trip-1" } }),
+  useNavigation: () => ({ goBack: jest.fn() }),
 }));
 
 jest.mock("../../auth/AuthContext", () => ({

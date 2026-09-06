@@ -20,6 +20,7 @@ from app.repositories.pois_repository import PoisRepository
 from app.repositories.profiles_repository import ProfilesRepository
 from app.repositories.quick_plan_repository import QuickPlanRepository
 from app.services.ai.factory import get_llm_gateway
+from app.services.ai.language import language_instruction
 from app.services.ai.llm_gateway import GenerationConfig, LLMMessage, LLMProviderError, MessageRole
 from app.services.ai.prompts import quick_plan as quick_plan_prompts
 
@@ -61,10 +62,11 @@ async def generate_quick_plan(
     lat: float | None,
     lng: float | None,
 ) -> dict:
+    profile = await ProfilesRepository().get_by_id(user_id)
+
     if lat is not None and lng is not None:
         candidates = await PoisRepository().search_nearby(lat, lng, 5000.0, category=None, limit=15)
     else:
-        profile = await ProfilesRepository().get_by_id(user_id)
         home_region = (profile or {}).get("home_region")
         candidates = (
             await PoisRepository().search_text(str(home_region), category=None, limit=15)
@@ -85,10 +87,14 @@ async def generate_quick_plan(
     if gateway is None:
         selection = _fallback_selection(candidates, max_stops)
     else:
+        preferred_language = (profile or {}).get("preferred_language")
+        system_prompt = quick_plan_prompts.SYSTEM_PROMPT + language_instruction(
+            str(preferred_language) if preferred_language else None
+        )
         try:
             response = await gateway.complete(
                 [
-                    LLMMessage(MessageRole.SYSTEM, quick_plan_prompts.SYSTEM_PROMPT),
+                    LLMMessage(MessageRole.SYSTEM, system_prompt),
                     LLMMessage(
                         MessageRole.USER,
                         quick_plan_prompts.build_user_message(
