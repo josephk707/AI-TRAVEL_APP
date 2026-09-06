@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, Text } from "react-native";
 
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useThemedStyles } from "../theme";
 
 interface Props {
   label: string;
@@ -12,8 +12,9 @@ interface Props {
 
 /** Compact multi-select chip — used for the interest grid, where a dozen
  * full SelectableCards would make the screen too tall/scrolly for a quick
- * onboarding step. */
+ * onboarding step. Selected chips invert (accent fill, accent foreground). */
 export function SelectableChip({ label, selected, onPress, testID }: Props): React.JSX.Element {
+  const styles = useThemedStyles(createStyles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -23,7 +24,7 @@ export function SelectableChip({ label, selected, onPress, testID }: Props): Rea
       style={({ pressed }) => [
         styles.chip,
         selected && styles.chipSelected,
-        pressed && styles.chipPressed,
+        pressed && (selected ? styles.chipSelectedPressed : styles.chipPressed),
       ]}
     >
       <Text style={[styles.label, selected && styles.labelSelected]}>{label}</Text>
@@ -31,17 +32,19 @@ export function SelectableChip({ label, selected, onPress, testID }: Props): Rea
   );
 }
 
-const styles = StyleSheet.create({
-  chip: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  chipSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
-  chipPressed: { opacity: 0.8 },
-  label: { ...typography.body, color: colors.text },
-  labelSelected: { color: colors.primaryText, fontWeight: "600" },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    chip: {
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.md,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    chipSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
+    chipPressed: { backgroundColor: colors.surfaceAlt },
+    chipSelectedPressed: { backgroundColor: colors.primaryStrong, opacity: 0.9 },
+    label: { ...typography.body, color: colors.textMuted },
+    labelSelected: { color: colors.primaryText, fontWeight: "600" },
+  });

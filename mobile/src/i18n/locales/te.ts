@@ -71,6 +71,11 @@ export const te: DeepPartial<TranslationResources> = {
     loadFailed: "మీ ప్రొఫైల్ లోడ్ కాలేదు.",
   },
   settings: {
+    appearance: "రూపం",
+    appearanceSystem: "సిస్టమ్",
+    appearanceLight: "లైట్",
+    appearanceDark: "డార్క్",
+    appearanceHint: "ఈ పరికరంలో Yatra AI ఎలా కనిపించాలో ఎంచుకోండి.",
     title: "సెట్టింగ్‌లు",
     general: "సాధారణ",
     language: "భాష",

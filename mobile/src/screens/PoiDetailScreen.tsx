@@ -4,7 +4,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { Poi } from "../api/pois";
@@ -16,15 +15,15 @@ import { listTrips, Trip } from "../api/trips";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
 import { MapErrorBoundary } from "../components/MapErrorBoundary";
 import { MapView, Marker, PROVIDER_GOOGLE } from "../components/PlatformMap";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { WeatherCard } from "../components/WeatherCard";
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -63,6 +62,8 @@ export function PoiDetailScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "PoiDetail">>();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteBusy, setFavoriteBusy] = useState(false);
@@ -170,10 +171,8 @@ export function PoiDetailScreen(): React.JSX.Element {
   }, [loadState, reviewForm, t]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="light" />
-
       <ScreenHeader title="" />
 
       {loadState.status === "loading" && (
@@ -200,6 +199,7 @@ export function PoiDetailScreen(): React.JSX.Element {
               testID="poi-detail-map"
               style={styles.map}
               provider={PROVIDER_GOOGLE}
+              userInterfaceStyle={isDark ? "dark" : "light"}
               initialRegion={{
                 latitude: loadState.poi.location.lat,
                 longitude: loadState.poi.location.lng,
@@ -229,7 +229,7 @@ export function PoiDetailScreen(): React.JSX.Element {
                 <Ionicons
                   name={isFavorite ? "heart" : "heart-outline"}
                   size={26}
-                  color={isFavorite ? colors.error : colors.textMuted}
+                  color={isFavorite ? colors.text : colors.textMuted}
                 />
               </Pressable>
             </View>
@@ -290,14 +290,14 @@ export function PoiDetailScreen(): React.JSX.Element {
               )}
 
               {reviews.map((review) => (
-                <Card key={review.id} style={styles.reviewCard} testID={`review-${review.id}`}>
+                <Card key={review.id} style={styles.reviewCard} variant="flat" testID={`review-${review.id}`}>
                   <Text style={styles.reviewRating}>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</Text>
                   {review.review_text && <Text style={styles.reviewText}>{review.review_text}</Text>}
                 </Card>
               ))}
 
               {reviewForm.visible && (
-                <Card style={styles.reviewForm} testID="review-form">
+                <Card style={styles.reviewForm} variant="flat" testID="review-form">
                   {completedTrips.length === 0 ? (
                     <Text style={styles.emptyReviewsText}>{t("poiDetail.completeATripPrompt")}</Text>
                   ) : (
@@ -331,7 +331,7 @@ export function PoiDetailScreen(): React.JSX.Element {
                         <Ionicons
                           name={value <= reviewForm.rating ? "star" : "star-outline"}
                           size={26}
-                          color={colors.warning}
+                          color={colors.gold}
                         />
                       </Pressable>
                     ))}
@@ -358,7 +358,7 @@ export function PoiDetailScreen(): React.JSX.Element {
         </ScrollView>
       )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
@@ -371,9 +371,11 @@ function DetailRow({
   label: string;
   children: React.ReactNode;
 }): React.JSX.Element {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
     <View style={styles.detailRow}>
-      <Ionicons name={icon} size={18} color={colors.primary} />
+      <Ionicons name={icon} size={18} color={colors.textMuted} />
       <View style={styles.detailTextGroup}>
         <Text style={styles.detailLabel}>{label}</Text>
         <Text style={styles.detailValue}>{children}</Text>
@@ -382,55 +384,66 @@ function DetailRow({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  centerFill: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  scrollContent: { paddingBottom: spacing.xl },
-  map: { height: 220, width: "100%" },
-  mapFallback: { height: 220, width: "100%", backgroundColor: colors.surface },
-  body: { padding: spacing.lg, gap: spacing.sm },
-  nameRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  name: { ...typography.title, color: colors.text, flex: 1 },
-  address: { ...typography.body, color: colors.textMuted },
-  reviewsSection: { marginTop: spacing.lg, gap: spacing.sm },
-  reviewsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  reviewsHeading: { ...typography.subtitle, color: colors.text },
-  writeReviewText: { ...typography.caption, color: colors.primary },
-  emptyReviewsText: { ...typography.body, color: colors.textMuted },
-  reviewCard: { gap: spacing.xs },
-  reviewRating: { color: colors.warning, fontSize: 16 },
-  reviewText: { ...typography.body, color: colors.text },
-  reviewForm: { gap: spacing.sm },
-  tripPickerRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  tripChip: {
-    ...typography.caption,
-    color: colors.text,
-    backgroundColor: colors.background,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-  },
-  tripChipActive: { backgroundColor: colors.primary, color: colors.primaryText, borderColor: colors.primary },
-  starRow: { flexDirection: "row", gap: spacing.xs },
-  reviewFormActions: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  cancelReviewText: { ...typography.body, color: colors.textMuted },
-  detailCard: { gap: spacing.md, marginTop: spacing.sm },
-  heritageCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.primary,
-    borderRadius: radius.lg,
-    padding: spacing.md,
-    marginTop: spacing.md,
-  },
-  heritageCardPressed: { opacity: 0.85 },
-  heritageCardText: { ...typography.subtitle, color: colors.primaryText, flex: 1 },
-  detailRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
-  detailTextGroup: { flex: 1 },
-  detailLabel: { ...typography.caption, color: colors.textMuted },
-  detailValue: { ...typography.body, color: colors.text, textTransform: "capitalize" },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1 },
+    centerFill: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
+    errorText: { ...typography.body, color: colors.error, textAlign: "center" },
+    scrollContent: { paddingBottom: spacing.xl },
+    map: { height: 220, width: "100%" },
+    mapFallback: {
+      height: 220,
+      width: "100%",
+      backgroundColor: colors.surfaceAlt,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    body: { padding: spacing.lg, gap: spacing.sm },
+    nameRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+    name: { ...typography.title, color: colors.text, flex: 1 },
+    address: { ...typography.body, color: colors.textMuted },
+    reviewsSection: { marginTop: spacing.lg, gap: spacing.sm },
+    reviewsHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    reviewsHeading: { ...typography.subtitle, color: colors.text },
+    writeReviewText: { ...typography.captionMedium, color: colors.text },
+    emptyReviewsText: { ...typography.body, color: colors.textMuted },
+    reviewCard: { gap: spacing.xs },
+    reviewRating: { color: colors.gold, fontSize: 16 },
+    reviewText: { ...typography.body, color: colors.text },
+    reviewForm: { gap: spacing.sm },
+    tripPickerRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+    tripChip: {
+      ...typography.caption,
+      color: colors.textMuted,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.sm,
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+    },
+    tripChipActive: {
+      backgroundColor: colors.primarySoft,
+      color: colors.text,
+      borderColor: colors.primary,
+    },
+    starRow: { flexDirection: "row", gap: spacing.xs },
+    reviewFormActions: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+    cancelReviewText: { ...typography.body, color: colors.textMuted },
+    detailCard: { gap: spacing.md, marginTop: spacing.sm },
+    heritageCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.primary,
+      borderRadius: radius.lg,
+      padding: spacing.md,
+      marginTop: spacing.md,
+    },
+    heritageCardPressed: { opacity: 0.85 },
+    heritageCardText: { ...typography.subtitle, color: colors.primaryText, flex: 1 },
+    detailRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
+    detailTextGroup: { flex: 1 },
+    detailLabel: { ...typography.caption, color: colors.textMuted },
+    detailValue: { ...typography.body, color: colors.text, textTransform: "capitalize" },
+  });

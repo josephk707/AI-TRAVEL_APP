@@ -50,19 +50,32 @@ class LocationRepository(Repository):
     ) -> dict[str, Any] | None:
         """The closest not-yet-completed itinerary item within the arrival
         geofence radius, or None. Real PostGIS `ST_DWithin`/distance query."""
+        # AI-first itinerary phase: a stop may have no `pois` row and carry
+        # its own coordinates (`place_lat`/`place_lng`) — arrival detection
+        # must work for those too, so the location is coalesced the same way
+        # TripsRepository._ITEM_COLUMNS does.
         row = await self.fetchrow(
             """
-            select i.id as item_id, i.poi_id, p.name as poi_name,
-                   ST_Distance(
-                       p.location, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography
-                   ) as distance_m
-            from public.itinerary_items i
-            join public.pois p on p.id = i.poi_id
-            where i.trip_id = $1
-              and i.status in ('planned', 'confirmed')
-              and ST_DWithin(
-                  p.location, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography, $4
-              )
+            with stops as (
+                select i.id, i.poi_id, coalesce(p.name, i.place_name) as poi_name,
+                       coalesce(
+                           p.location,
+                           case when i.place_lat is not null and i.place_lng is not null
+                                then ST_SetSRID(
+                                    ST_MakePoint(i.place_lng, i.place_lat), 4326
+                                )::geography
+                           end
+                       ) as location
+                from public.itinerary_items i
+                left join public.pois p on p.id = i.poi_id
+                where i.trip_id = $1 and i.status in ('planned', 'confirmed')
+            )
+            select id as item_id, poi_id, poi_name,
+                   ST_Distance(location, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography)
+                       as distance_m
+            from stops
+            where location is not null
+              and ST_DWithin(location, ST_SetSRID(ST_MakePoint($3, $2), 4326)::geography, $4)
             order by distance_m asc
             limit 1;
             """,

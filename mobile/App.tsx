@@ -5,17 +5,21 @@ import { AuthProvider } from "./src/auth/AuthContext";
 import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { LanguageProvider } from "./src/i18n";
 import { RootNavigator } from "./src/navigation/RootNavigator";
+import { ThemedStatusBar, ThemeProvider } from "./src/theme";
 
 export default function App(): React.JSX.Element {
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
-        <LanguageProvider>
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
-        </LanguageProvider>
-      </ErrorBoundary>
+      <ThemeProvider>
+        <ThemedStatusBar />
+        <ErrorBoundary>
+          <LanguageProvider>
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          </LanguageProvider>
+        </ErrorBoundary>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

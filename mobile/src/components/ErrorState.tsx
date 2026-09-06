@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 import { Button } from "./Button";
 
 interface Props {
@@ -20,10 +20,13 @@ export function ErrorState({
   onRetry,
   testID,
 }: Props): React.JSX.Element {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
+
   return (
     <View style={styles.container} testID="error-state">
       <View style={styles.iconBadge}>
-        <Ionicons name="alert-circle-outline" size={28} color={colors.error} />
+        <Ionicons name="alert-circle-outline" size={26} color={colors.error} />
       </View>
       <Text style={styles.message}>{message}</Text>
       {onRetry ? (
@@ -41,17 +44,23 @@ export function ErrorState({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  iconBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: radius.pill,
-    backgroundColor: colors.errorSoft,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.xs,
-  },
-  message: { ...typography.body, color: colors.text, textAlign: "center" },
-  action: { marginTop: spacing.sm },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: {
+      alignItems: "center",
+      justifyContent: "center",
+      padding: spacing.xl,
+      gap: spacing.sm,
+    },
+    iconBadge: {
+      width: 60,
+      height: 60,
+      borderRadius: radius.pill,
+      backgroundColor: colors.errorSoft,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.xs,
+    },
+    message: { ...typography.body, color: colors.text, textAlign: "center" },
+    action: { marginTop: spacing.sm },
+  });

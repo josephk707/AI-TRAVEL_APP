@@ -1,14 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuth } from "../auth/AuthContext";
-import { GradientBackground } from "../components/GradientBackground";
-import { IconBadge } from "../components/IconBadge";
+import { Screen } from "../components/Screen";
 import { useTranslation } from "../i18n";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 /**
  * The mobile app's entry point for anyone without a session
@@ -20,16 +18,16 @@ export function SignInScreen(): React.JSX.Element {
   const { state, errorMessage, signInWithGoogle, clearError } = useAuth();
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const isBusy = state === "AUTHENTICATING";
 
   return (
-    <GradientBackground>
-      <StatusBar style="light" />
+    <Screen>
       <View style={[styles.container, { paddingTop: insets.top + spacing.xl }]}>
         <View style={styles.hero}>
-          <IconBadge icon="airplane" size={80} variant="gradient" />
           <Text style={styles.brand}>Yatra AI</Text>
-          <Text style={styles.title}>{t("auth.tagline")}</Text>
+          <Text style={styles.tagline}>{t("auth.tagline")}</Text>
           <Text style={styles.subtitle}>{t("auth.subtitle")}</Text>
         </View>
 
@@ -62,9 +60,9 @@ export function SignInScreen(): React.JSX.Element {
             ]}
           >
             {isBusy ? (
-              <ActivityIndicator size="small" color={colors.background} />
+              <ActivityIndicator size="small" color={colors.primaryText} />
             ) : (
-              <Ionicons name="logo-google" size={20} color={colors.background} />
+              <Ionicons name="logo-google" size={20} color={colors.primaryText} />
             )}
             <Text style={styles.googleButtonLabel}>
               {isBusy ? t("auth.signingIn") : t("auth.continueWithGoogle")}
@@ -77,58 +75,59 @@ export function SignInScreen(): React.JSX.Element {
           </Text>
         </View>
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.xl,
-  },
-  hero: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-  },
-  brand: { ...typography.h1, color: colors.text, marginTop: spacing.md },
-  title: { ...typography.title, color: colors.text, textAlign: "center", marginTop: spacing.xs },
-  subtitle: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: "center",
-    maxWidth: 300,
-    marginTop: spacing.xs,
-  },
-  footer: { gap: spacing.md },
-  noticeText: {
-    ...typography.body,
-    color: colors.warning,
-    textAlign: "center",
-  },
-  errorText: {
-    ...typography.body,
-    color: colors.error,
-    textAlign: "center",
-  },
-  googleButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.white,
-    borderRadius: radius.pill,
-    paddingVertical: spacing.sm + 4,
-    paddingHorizontal: spacing.lg,
-  },
-  googleButtonPressed: { opacity: 0.9 },
-  googleButtonDisabled: { opacity: 0.6 },
-  googleButtonLabel: { ...typography.subtitle, color: colors.background },
-  legalText: {
-    ...typography.caption,
-    color: colors.textFaint,
-    textAlign: "center",
-  },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.xl,
+    },
+    hero: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+    },
+    brand: { ...typography.display, color: colors.text, textAlign: "center" },
+    tagline: { ...typography.subtitle, color: colors.textMuted, textAlign: "center" },
+    subtitle: {
+      ...typography.body,
+      color: colors.textFaint,
+      textAlign: "center",
+      maxWidth: 300,
+    },
+    footer: { gap: spacing.md },
+    noticeText: {
+      ...typography.body,
+      color: colors.warning,
+      textAlign: "center",
+    },
+    errorText: {
+      ...typography.body,
+      color: colors.error,
+      textAlign: "center",
+    },
+    googleButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      minHeight: 48,
+      backgroundColor: colors.primary,
+      borderRadius: radius.md,
+      paddingVertical: spacing.sm + 4,
+      paddingHorizontal: spacing.lg,
+    },
+    googleButtonPressed: { backgroundColor: colors.primaryStrong, opacity: 0.9 },
+    googleButtonDisabled: { opacity: 0.6 },
+    googleButtonLabel: { ...typography.subtitle, color: colors.primaryText },
+    legalText: {
+      ...typography.caption,
+      color: colors.textFaint,
+      textAlign: "center",
+    },
+  });

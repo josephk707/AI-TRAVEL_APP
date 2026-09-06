@@ -21,14 +21,14 @@ module.exports = {
     version: "0.1.0",
     orientation: "portrait",
     icon: "./assets/icon.png",
-    userInterfaceStyle: "dark",
+    userInterfaceStyle: "automatic",
     ios: {
       supportsTablet: true,
       config: googleMapsSdkKey ? { googleMapsApiKey: googleMapsSdkKey } : undefined,
     },
     android: {
       adaptiveIcon: {
-        backgroundColor: "#E6F4FE",
+        backgroundColor: "#FFFFFF",
         foregroundImage: "./assets/android-icon-foreground.png",
         backgroundImage: "./assets/android-icon-background.png",
         monochromeImage: "./assets/android-icon-monochrome.png",

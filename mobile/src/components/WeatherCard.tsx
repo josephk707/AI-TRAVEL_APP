@@ -5,7 +5,7 @@ import { StyleSheet, Text, View } from "react-native";
 import { ApiError } from "../api/client";
 import { fetchWeather, Weather } from "../api/weather";
 import { useTranslation } from "../i18n";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 import { Card } from "./Card";
 import { LoadingView } from "./LoadingView";
 
@@ -34,6 +34,8 @@ function iconForCondition(code: number): keyof typeof Ionicons.glyphMap {
  * location can drop this in — used first by PoiDetailScreen. */
 export function WeatherCard({ lat, lng }: { lat: number; lng: number }): React.JSX.Element {
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [state, setState] = useState<State>({ status: "loading" });
 
   useEffect(() => {
@@ -77,7 +79,7 @@ export function WeatherCard({ lat, lng }: { lat: number; lng: number }): React.J
             <Ionicons
               name={iconForCondition(state.weather.current.condition_code)}
               size={40}
-              color={colors.primary}
+              color={colors.text}
             />
             <View style={styles.currentTextGroup}>
               <Text style={styles.temperature}>
@@ -125,25 +127,26 @@ export function WeatherCard({ lat, lng }: { lat: number; lng: number }): React.J
   );
 }
 
-const styles = StyleSheet.create({
-  card: { gap: spacing.sm },
-  title: { ...typography.subtitle, color: colors.text },
-  errorText: { ...typography.caption, color: colors.textMuted },
-  currentRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  currentTextGroup: { gap: 2 },
-  temperature: { ...typography.title, color: colors.text },
-  condition: { ...typography.body, color: colors.textMuted },
-  statsRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xs },
-  statText: { ...typography.caption, color: colors.textMuted },
-  forecastRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: spacing.md,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.divider,
-  },
-  forecastDay: { alignItems: "center", gap: 2, borderRadius: radius.sm },
-  forecastLabel: { ...typography.micro, color: colors.textMuted },
-  forecastTemp: { ...typography.caption, color: colors.text },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    card: { gap: spacing.sm },
+    title: { ...typography.subtitle, color: colors.text },
+    errorText: { ...typography.caption, color: colors.textMuted },
+    currentRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    currentTextGroup: { gap: 2 },
+    temperature: { ...typography.title, color: colors.text },
+    condition: { ...typography.body, color: colors.textMuted },
+    statsRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.xs },
+    statText: { ...typography.caption, color: colors.textMuted },
+    forecastRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginTop: spacing.md,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+    },
+    forecastDay: { alignItems: "center", gap: 2, borderRadius: radius.sm },
+    forecastLabel: { ...typography.micro, color: colors.textMuted, textTransform: "uppercase" },
+    forecastTemp: { ...typography.caption, color: colors.text },
+  });

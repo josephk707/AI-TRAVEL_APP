@@ -9,7 +9,7 @@ from typing import Any
 from app.repositories.base import Repository
 
 _COLUMNS = (
-    "id, trip_id, itinerary_item_id, trigger_type, detected_at, proposal, " "status, resolved_at"
+    "id, trip_id, itinerary_item_id, trigger_type, detected_at, proposal, status, resolved_at"
 )
 
 

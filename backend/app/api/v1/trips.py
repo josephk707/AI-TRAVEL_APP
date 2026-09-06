@@ -67,6 +67,10 @@ def _item_to_response(item: dict) -> dict:
     row["poi_id"] = str(row["poi_id"]) if row.get("poi_id") else None
     row["planned_start"] = _format_time(row.get("planned_start"))
     row["planned_end"] = _format_time(row.get("planned_end"))
+    row["lat"] = row.get("poi_lat")
+    row["lng"] = row.get("poi_lng")
+    row["area"] = row.get("place_area")
+    row["location_source"] = row.get("location_source") or "poi"
     return row
 
 

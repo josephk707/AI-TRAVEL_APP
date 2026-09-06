@@ -3,7 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 interface Props {
   title: string;
@@ -14,7 +14,7 @@ interface Props {
   rightAction?: React.ReactNode;
 }
 
-/** Shared header for pushed/detail screens — a circular glass back
+/** Shared header for pushed/detail screens — an outlined circular back
  * button + title, replacing each screen's previous ad hoc header markup. */
 export function ScreenHeader({
   title,
@@ -23,6 +23,8 @@ export function ScreenHeader({
   rightAction,
 }: Props): React.JSX.Element {
   const navigation = useNavigation();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   return (
     <View style={styles.row}>
@@ -56,27 +58,28 @@ export function ScreenHeader({
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-  },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.pill,
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconButtonSpacer: { width: 40, height: 40 },
-  pressed: { opacity: 0.7 },
-  titleGroup: { flex: 1 },
-  title: { ...typography.h1, color: colors.text },
-  subtitle: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    iconButtonSpacer: { width: 40, height: 40 },
+    pressed: { backgroundColor: colors.surfaceAlt },
+    titleGroup: { flex: 1 },
+    title: { ...typography.h1, color: colors.text },
+    subtitle: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
+  });

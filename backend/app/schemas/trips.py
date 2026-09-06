@@ -34,9 +34,18 @@ class TripCreateRequest(BaseModel):
         return self
 
 
+LocationSource = Literal["poi", "places_api", "ai_estimate", "unresolved"]
+
+
 class TripUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     status: TripStatus | None = None
+    # AI-first itinerary phase: when the planner does not recognise the
+    # destination it asks the traveller to correct it — that correction
+    # lands here, before generation is retried.
+    destination: str | None = Field(default=None, min_length=1, max_length=200)
+    destination_lat: float | None = Field(default=None, ge=-90, le=90)
+    destination_lng: float | None = Field(default=None, ge=-180, le=180)
     start_date: date | None = None
     end_date: date | None = None
     budget_planned: float | None = Field(default=None, gt=0)
@@ -98,6 +107,14 @@ class ItineraryItemResponse(BaseModel):
     id: str
     poi_id: str | None
     poi_name: str | None
+    # AI-first itinerary phase — every stop carries what the client needs to
+    # show a category icon and open turn-by-turn navigation, plus an honest
+    # label for how its location was obtained (see DATABASE_SCHEMA.md §4).
+    poi_category: str | None = None
+    area: str | None = None
+    lat: float | None = None
+    lng: float | None = None
+    location_source: LocationSource = "poi"
     sequence_order: int
     planned_start: str | None
     planned_end: str | None

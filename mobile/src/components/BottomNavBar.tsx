@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React from "react";
@@ -8,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, gradients, radius, shadow, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type NavTarget = keyof Pick<RootStackParamList, "Home" | "TripsList" | "Explore" | "Profile">;
 
@@ -32,6 +31,8 @@ export function BottomNavBar({ active }: { active: NavTarget }): React.JSX.Eleme
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const items: { target: NavTarget; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
     { target: "Home", label: t("nav.home"), icon: "home" },
@@ -57,17 +58,10 @@ export function BottomNavBar({ active }: { active: NavTarget }): React.JSX.Eleme
           accessibilityRole="button"
           accessibilityLabel={t("nav.assistant")}
           onPress={() => navigation.navigate("TripCreation")}
-          style={({ pressed }) => [styles.centerButton, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.centerButton, pressed && styles.centerPressed]}
           testID="nav-assistant-button"
         >
-          <LinearGradient
-            colors={gradients.primaryButton}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.centerGradient, shadow.glow]}
-          >
-            <Ionicons name="sparkles" size={22} color={colors.primaryText} />
-          </LinearGradient>
+          <Ionicons name="sparkles" size={22} color={colors.primaryText} />
         </Pressable>
 
         {items.slice(midpoint).map((item) => (
@@ -96,6 +90,8 @@ function NavItem({
   isActive: boolean;
   navigation: NativeStackNavigationProp<RootStackParamList>;
 }): React.JSX.Element {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
     <Pressable
       accessibilityRole="button"
@@ -108,38 +104,41 @@ function NavItem({
       <Ionicons
         name={isActive ? icon : (`${icon}-outline` as keyof typeof Ionicons.glyphMap)}
         size={22}
-        color={isActive ? colors.primary : colors.textMuted}
+        color={isActive ? colors.text : colors.textFaint}
       />
       <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.backgroundElevated,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  bar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-around",
-    paddingTop: spacing.sm,
-    paddingHorizontal: spacing.sm,
-  },
-  navItem: { alignItems: "center", justifyContent: "center", gap: 2, minWidth: 56 },
-  navLabel: { ...typography.micro, color: colors.textMuted, textTransform: "none" },
-  navLabelActive: { color: colors.primary },
-  centerButton: { marginTop: -28, borderRadius: radius.pill },
-  centerGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-    borderColor: colors.backgroundElevated,
-  },
-  pressed: { opacity: 0.75 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: {
+      backgroundColor: colors.backgroundElevated,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.borderStrong,
+    },
+    bar: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-around",
+      paddingTop: spacing.sm,
+      paddingHorizontal: spacing.sm,
+    },
+    navItem: { alignItems: "center", justifyContent: "center", gap: 2, minWidth: 56 },
+    navLabel: { ...typography.micro, color: colors.textFaint, textTransform: "none" },
+    navLabelActive: { color: colors.text },
+    centerButton: {
+      marginTop: -24,
+      width: 56,
+      height: 56,
+      borderRadius: radius.pill,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 4,
+      borderColor: colors.backgroundElevated,
+    },
+    centerPressed: { opacity: 0.85 },
+    pressed: { opacity: 0.6 },
+  });

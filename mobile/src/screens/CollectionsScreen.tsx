@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
@@ -15,10 +14,10 @@ import {
 } from "../api/collections";
 import { Button } from "../components/Button";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -30,6 +29,8 @@ type LoadState =
  * (AI_ARCHITECTURE.md §7/§20), not merely a local bookmark. */
 export function CollectionsScreen(): React.JSX.Element {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList, "Collections">>();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [newCollectionName, setNewCollectionName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -67,9 +68,8 @@ export function CollectionsScreen(): React.JSX.Element {
   }, [newCollectionName, load]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={styles.flex}>
-      <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.title}>Saved places</Text>
       </View>
@@ -102,7 +102,7 @@ export function CollectionsScreen(): React.JSX.Element {
               ) : (
                 state.favorites.map((favorite) => (
                   <View key={favorite.poi_id} style={styles.row} testID={`favorite-${favorite.poi_id}`}>
-                    <Ionicons name="heart" size={18} color={colors.error} />
+                    <Ionicons name="heart" size={18} color={colors.text} />
                     <Text style={styles.rowText}>{favorite.poi_name}</Text>
                   </View>
                 ))
@@ -113,7 +113,8 @@ export function CollectionsScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.input}
                   placeholder="New collection name"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={colors.textFaint}
+                  keyboardAppearance={isDark ? "dark" : "light"}
                   value={newCollectionName}
                   onChangeText={setNewCollectionName}
                   testID="new-collection-input"
@@ -123,6 +124,7 @@ export function CollectionsScreen(): React.JSX.Element {
                   onPress={() => void createNewCollection()}
                   disabled={creating}
                   testID="create-collection-button"
+                  fullWidth={false}
                 />
               </View>
             </View>
@@ -133,8 +135,11 @@ export function CollectionsScreen(): React.JSX.Element {
             </Text>
           }
           renderItem={({ item }) => (
-            <Pressable style={styles.row} testID={`collection-${item.id}`}>
-              <Ionicons name="albums-outline" size={18} color={colors.primary} />
+            <Pressable
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              testID={`collection-${item.id}`}
+            >
+              <Ionicons name="albums-outline" size={18} color={colors.textMuted} />
               <Text style={styles.rowText}>
                 {item.name} ({item.item_count})
               </Text>
@@ -143,42 +148,43 @@ export function CollectionsScreen(): React.JSX.Element {
         />
       )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  header: { padding: spacing.lg, paddingBottom: spacing.sm },
-  title: { ...typography.title, color: colors.text },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  emptyText: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
-  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
-  section: { gap: spacing.xs },
-  sectionHeading: { ...typography.subtitle, color: colors.text, marginTop: spacing.md },
-  collectionsHeading: { marginTop: spacing.lg },
-  newCollectionRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center", marginBottom: spacing.sm },
-  input: {
-    flex: 1,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  rowText: { ...typography.body, color: colors.text },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    header: { padding: spacing.lg, paddingBottom: spacing.sm },
+    title: { ...typography.title, color: colors.text },
+    centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
+    emptyText: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
+    list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
+    section: { gap: spacing.xs },
+    sectionHeading: { ...typography.subtitle, color: colors.text, marginTop: spacing.md },
+    collectionsHeading: { marginTop: spacing.lg },
+    newCollectionRow: { flexDirection: "row", gap: spacing.sm, alignItems: "center", marginBottom: spacing.sm },
+    input: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      ...typography.body,
+    },
+    row: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    rowPressed: { backgroundColor: colors.surfaceAlt },
+    rowText: { ...typography.body, color: colors.text },
+  });

@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, Share, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,11 +17,11 @@ import {
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -36,6 +35,8 @@ export function SafetyScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "Safety">>();
   const { tripId } = route.params;
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [name, setName] = useState("");
@@ -136,19 +137,22 @@ export function SafetyScreen(): React.JSX.Element {
   }, [tripId]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
-      <StatusBar style="light" />
       <ScreenHeader title="Safety" />
 
       <Pressable
-        style={[styles.sosButton, sosSending && styles.sosButtonDisabled]}
+        style={({ pressed }) => [
+          styles.sosButton,
+          sosSending && styles.sosButtonDisabled,
+          pressed && !sosSending && styles.sosButtonPressed,
+        ]}
         onPress={handleSos}
         disabled={sosSending}
         testID="sos-button"
         accessibilityRole="button"
       >
-        <Ionicons name="alert-circle" size={24} color={colors.primaryText} />
+        <Ionicons name="alert-circle" size={24} color={colors.background} />
         <Text style={styles.sosButtonText}>{sosSending ? "Sending…" : "SOS"}</Text>
       </Pressable>
       {sosSent && (
@@ -200,7 +204,8 @@ export function SafetyScreen(): React.JSX.Element {
               <TextInput
                 style={styles.input}
                 placeholder="Name"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.textFaint}
+                keyboardAppearance={isDark ? "dark" : "light"}
                 value={name}
                 onChangeText={setName}
                 testID="contact-name-input"
@@ -208,7 +213,8 @@ export function SafetyScreen(): React.JSX.Element {
               <TextInput
                 style={styles.input}
                 placeholder="Phone number"
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={colors.textFaint}
+                keyboardAppearance={isDark ? "dark" : "light"}
                 keyboardType="phone-pad"
                 value={phone}
                 onChangeText={setPhone}
@@ -228,72 +234,90 @@ export function SafetyScreen(): React.JSX.Element {
           }
           renderItem={({ item }) => (
             <View style={styles.contactRow} testID={`contact-${item.id}`}>
-              <Ionicons name="person-circle-outline" size={22} color={colors.primary} />
+              <View style={styles.contactIcon}>
+                <Ionicons name="person-outline" size={16} color={colors.text} />
+              </View>
               <Text style={styles.contactText}>{item.name}</Text>
             </View>
           )}
         />
       )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, marginHorizontal: spacing.lg },
-  sosButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-    backgroundColor: colors.error,
-    borderRadius: radius.lg,
-    marginHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  sosButtonDisabled: { opacity: 0.6 },
-  sosButtonText: { ...typography.subtitle, color: colors.primaryText },
-  sosSentText: {
-    ...typography.caption,
-    color: colors.success,
-    textAlign: "center",
-    marginTop: spacing.xs,
-  },
-  shareCard: { margin: spacing.lg, gap: spacing.sm },
-  cardTitle: { ...typography.subtitle, color: colors.text },
-  cardHint: { ...typography.caption, color: colors.textMuted },
-  shareUrl: {
-    ...typography.caption,
-    color: colors.primary,
-    backgroundColor: colors.surface,
-    padding: spacing.sm,
-    borderRadius: radius.sm,
-  },
-  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
-  addCard: { gap: spacing.sm },
-  contactsHeading: { marginTop: spacing.md },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  emptyText: { ...typography.body, color: colors.textMuted },
-  contactRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.xs,
-  },
-  contactText: { ...typography.body, color: colors.text },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
+    errorText: { ...typography.body, color: colors.error, marginHorizontal: spacing.lg },
+    // SOS is the one place on this screen that keeps a semantic fill — it is
+    // an emergency action and the red carries meaning, not decoration.
+    sosButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.xs,
+      backgroundColor: colors.error,
+      borderRadius: radius.lg,
+      marginHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    sosButtonPressed: { opacity: 0.85 },
+    sosButtonDisabled: { opacity: 0.6 },
+    sosButtonText: { ...typography.subtitle, color: colors.background },
+    sosSentText: {
+      ...typography.caption,
+      color: colors.success,
+      textAlign: "center",
+      marginTop: spacing.xs,
+    },
+    shareCard: { margin: spacing.lg, gap: spacing.sm },
+    cardTitle: { ...typography.subtitle, color: colors.text },
+    cardHint: { ...typography.caption, color: colors.textMuted },
+    shareUrl: {
+      ...typography.captionMedium,
+      color: colors.text,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.sm,
+      borderRadius: radius.sm,
+    },
+    list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
+    addCard: { gap: spacing.sm },
+    contactsHeading: { marginTop: spacing.md },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      ...typography.body,
+    },
+    emptyText: { ...typography.body, color: colors.textMuted },
+    contactRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+      marginBottom: spacing.xs,
+    },
+    contactIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    contactText: { ...typography.body, color: colors.text },
+  });

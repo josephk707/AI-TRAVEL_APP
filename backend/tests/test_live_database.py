@@ -114,9 +114,9 @@ async def test_all_expected_tables_exist(conn: asyncpg.Connection) -> None:
     )
     actual = {row["table_name"] for row in rows}
     missing = EXPECTED_TABLES - actual
-    assert (
-        not missing
-    ), f"Tables defined in DATABASE_SCHEMA.md but missing from the live database: {missing}"
+    assert not missing, (
+        f"Tables defined in DATABASE_SCHEMA.md but missing from the live database: {missing}"
+    )
 
 
 async def test_every_expected_table_has_a_primary_key(conn: asyncpg.Connection) -> None:
@@ -190,9 +190,9 @@ async def test_m2_fix_explicit_on_delete_behavior(
     conn: asyncpg.Connection, table: str, column: str, expected_rule: str
 ) -> None:
     delete_rule = await _fk_delete_rule(conn, table, column)
-    assert (
-        delete_rule == expected_rule
-    ), f"M2 regression: {table}.{column} expected ON DELETE {expected_rule}, got {delete_rule}"
+    assert delete_rule == expected_rule, (
+        f"M2 regression: {table}.{column} expected ON DELETE {expected_rule}, got {delete_rule}"
+    )
 
 
 async def test_m8_fix_ai_messages_conversation_id_nullable_with_context_type(
@@ -203,9 +203,9 @@ async def test_m8_fix_ai_messages_conversation_id_nullable_with_context_type(
         "where table_schema = 'public' and table_name = 'ai_messages' "
         "and column_name = 'conversation_id';"
     )
-    assert (
-        row is not None and row["is_nullable"] == "YES"
-    ), "M8 regression: conversation_id must be nullable"
+    assert row is not None and row["is_nullable"] == "YES", (
+        "M8 regression: conversation_id must be nullable"
+    )
 
     context_type_row = await conn.fetchrow(
         "select data_type from information_schema.columns "
@@ -228,9 +228,9 @@ async def test_h6_fix_memory_items_has_separate_mutation_policies(conn: asyncpg.
         "INSERT",
         "UPDATE",
         "DELETE",
-    }.issubset(
-        commands
-    ), f"H6 regression: memory_items policies are not split per-command: {commands}"
+    }.issubset(commands), (
+        f"H6 regression: memory_items policies are not split per-command: {commands}"
+    )
 
 
 async def test_l9_fix_heritage_embeddings_has_no_client_select_policy(
@@ -240,9 +240,9 @@ async def test_l9_fix_heritage_embeddings_has_no_client_select_policy(
         "select policyname from pg_policies "
         "where schemaname = 'public' and tablename = 'heritage_content_embeddings';"
     )
-    assert (
-        len(rows) == 0
-    ), f"L9 regression: client-facing policies exist on heritage_content_embeddings: {rows}"
+    assert len(rows) == 0, (
+        f"L9 regression: client-facing policies exist on heritage_content_embeddings: {rows}"
+    )
 
 
 async def test_l11_fix_pois_and_heritage_content_have_admin_update_delete(
@@ -253,12 +253,12 @@ async def test_l11_fix_pois_and_heritage_content_have_admin_update_delete(
             "select cmd from pg_policies where schemaname = 'public' and tablename = $1;", table
         )
         commands = {row["cmd"] for row in rows}
-        assert (
-            "UPDATE" in commands or "w" in commands
-        ), f"L11 regression: no admin UPDATE policy on {table}"
-        assert (
-            "DELETE" in commands or "d" in commands
-        ), f"L11 regression: no admin DELETE policy on {table}"
+        assert "UPDATE" in commands or "w" in commands, (
+            f"L11 regression: no admin UPDATE policy on {table}"
+        )
+        assert "DELETE" in commands or "d" in commands, (
+            f"L11 regression: no admin DELETE policy on {table}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +311,9 @@ async def test_vector_columns_exist(conn: asyncpg.Connection) -> None:
             table,
             column,
         )
-        assert (
-            row is not None and row["udt_name"] == "vector"
-        ), f"{table}.{column} is not a vector column"
+        assert row is not None and row["udt_name"] == "vector", (
+            f"{table}.{column} is not a vector column"
+        )
 
 
 async def test_geography_columns_exist(conn: asyncpg.Connection) -> None:
@@ -324,9 +324,9 @@ async def test_geography_columns_exist(conn: asyncpg.Connection) -> None:
             table,
             column,
         )
-        assert (
-            row is not None and row["udt_name"] == "geography"
-        ), f"{table}.{column} is not a geography column"
+        assert row is not None and row["udt_name"] == "geography", (
+            f"{table}.{column} is not a geography column"
+        )
 
 
 async def test_geospatial_and_vector_indexes_exist(conn: asyncpg.Connection) -> None:

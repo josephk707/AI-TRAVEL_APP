@@ -1,7 +1,7 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 
-import { colors, spacing, typography } from "../theme/tokens";
+import { spacing, type Theme, typography, useThemedStyles } from "../theme";
 import { Button } from "./Button";
 
 interface Props {
@@ -39,27 +39,42 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   render(): React.ReactNode {
     if (this.state.error) {
-      return (
-        <View style={styles.container} testID="error-boundary-fallback">
-          <Text style={styles.title}>Something went wrong</Text>
-          <Text style={styles.message}>{this.state.error.message}</Text>
-          <Button label="Try again" onPress={this.handleReset} />
-        </View>
-      );
+      return <ErrorFallback message={this.state.error.message} onReset={this.handleReset} />;
     }
     return this.props.children;
   }
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.background,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  title: { ...typography.subtitle, color: colors.error },
-  message: { ...typography.body, color: colors.textMuted, textAlign: "center" },
-});
+/** Function component so the class boundary above can still use the
+ * theme hooks. `useTheme()` works without a provider, so this renders
+ * correctly even if the crash happened above ThemeProvider. */
+function ErrorFallback({
+  message,
+  onReset,
+}: {
+  message: string;
+  onReset: () => void;
+}): React.JSX.Element {
+  const styles = useThemedStyles(createStyles);
+  return (
+    <View style={styles.container} testID="error-boundary-fallback">
+      <Text style={styles.title}>Something went wrong</Text>
+      <Text style={styles.message}>{message}</Text>
+      <Button label="Try again" onPress={onReset} />
+    </View>
+  );
+}
+
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.background,
+      padding: spacing.lg,
+      gap: spacing.md,
+    },
+    title: { ...typography.subtitle, color: colors.error },
+    message: { ...typography.body, color: colors.textMuted, textAlign: "center" },
+  });

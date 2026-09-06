@@ -186,7 +186,7 @@ async def test_traveller_profile_reaches_the_final_prompt(captured: _CapturingGa
     assert "relaxed" in final
     # The itinerary/candidate context is still there — the profile block is
     # additive, not a replacement.
-    assert "CANDIDATE PLACE LIST" in final
+    assert "KNOWN PLACES" in final
 
 
 # ---------------------------------------------------------------------------

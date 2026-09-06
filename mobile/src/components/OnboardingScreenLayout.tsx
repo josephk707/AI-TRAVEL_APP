@@ -1,12 +1,11 @@
 import React from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 import { Button } from "./Button";
-import { GradientBackground } from "./GradientBackground";
 import { ProgressDots } from "./ProgressDots";
-import { colors, spacing, typography } from "../theme/tokens";
+import { Screen } from "./Screen";
 
 const TOTAL_ONBOARDING_STEPS = 5;
 
@@ -38,74 +37,75 @@ export function OnboardingScreenLayout({
   children,
 }: Props): React.JSX.Element {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.container, { paddingTop: insets.top + spacing.md }]}>
-      <StatusBar style="light" />
+        <View style={styles.header}>
+          <ProgressDots total={TOTAL_ONBOARDING_STEPS} currentIndex={stepIndex} />
+          <Text
+            accessibilityRole="button"
+            onPress={onSkip}
+            style={styles.skipLink}
+            testID="onboarding-skip-link"
+          >
+            Skip
+          </Text>
+        </View>
 
-      <View style={styles.header}>
-        <ProgressDots total={TOTAL_ONBOARDING_STEPS} currentIndex={stepIndex} />
-        <Text
-          accessibilityRole="button"
-          onPress={onSkip}
-          style={styles.skipLink}
-          testID="onboarding-skip-link"
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          Skip
-        </Text>
-      </View>
+          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.subtitle}>{subtitle}</Text>
+          <View style={styles.content}>{children}</View>
+        </ScrollView>
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
-        <View style={styles.content}>{children}</View>
-      </ScrollView>
-
-      <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
-        <Button
-          label={primaryBusy ? "" : primaryLabel}
-          onPress={onPrimaryPress}
-          disabled={primaryBusy}
-          testID={primaryTestID}
-        />
-        {primaryBusy && (
-          <ActivityIndicator
-            size="small"
-            color={colors.primaryText}
-            style={styles.buttonSpinner}
+        <View style={[styles.footer, { paddingBottom: insets.bottom + spacing.md }]}>
+          <Button
+            label={primaryBusy ? "" : primaryLabel}
+            onPress={onPrimaryPress}
+            disabled={primaryBusy}
+            testID={primaryTestID}
           />
-        )}
+          {primaryBusy && (
+            <ActivityIndicator
+              size="small"
+              color={colors.primaryText}
+              style={styles.buttonSpinner}
+            />
+          )}
+        </View>
       </View>
-      </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
-  },
-  skipLink: { ...typography.body, color: colors.textMuted, padding: spacing.xs },
-  scroll: { flex: 1 },
-  scrollContent: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.md },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
-  content: { gap: spacing.sm },
-  footer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  buttonSpinner: { position: "absolute", alignSelf: "center", top: spacing.sm + 4 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: { flex: 1 },
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.sm,
+    },
+    skipLink: { ...typography.bodyMedium, color: colors.textMuted, padding: spacing.xs },
+    scroll: { flex: 1 },
+    scrollContent: { padding: spacing.lg, paddingTop: spacing.md, gap: spacing.md },
+    title: { ...typography.title, color: colors.text },
+    subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
+    content: { gap: spacing.sm },
+    footer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.borderStrong,
+    },
+    buttonSpinner: { position: "absolute", alignSelf: "center", top: spacing.md + 14 },
+  });

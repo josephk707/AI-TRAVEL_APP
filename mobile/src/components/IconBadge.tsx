@@ -1,43 +1,46 @@
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import { StyleSheet, View } from "react-native";
 
-import { colors, gradients, radius } from "../theme/tokens";
+import { radius, type Theme, useTheme, useThemedStyles } from "../theme";
 
 interface Props {
   icon: keyof typeof Ionicons.glyphMap;
   size?: number;
-  /** solid: flat tinted circle (default, for list rows).
-   * gradient: violet gradient circle (for a screen's single hero action). */
-  variant?: "solid" | "gradient";
+  /** solid: neutral tinted square (default, for list rows).
+   * inverse: filled accent circle — black on white / white on black —
+   * for a screen's single hero action. */
+  variant?: "solid" | "inverse";
 }
 
 export function IconBadge({ icon, size = 44, variant = "solid" }: Props): React.JSX.Element {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   const iconSize = Math.round(size * 0.5);
-  const dimensionStyle = { width: size, height: size, borderRadius: size };
 
-  if (variant === "gradient") {
+  if (variant === "inverse") {
     return (
-      <LinearGradient
-        colors={gradients.primaryButton}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[styles.badge, dimensionStyle]}
-      >
+      <View style={[styles.badge, styles.inverseBadge, { width: size, height: size }]}>
         <Ionicons name={icon} size={iconSize} color={colors.primaryText} />
-      </LinearGradient>
+      </View>
     );
   }
 
   return (
-    <View style={[styles.badge, styles.solidBadge, dimensionStyle]}>
-      <Ionicons name={icon} size={iconSize} color={colors.primary} />
+    <View style={[styles.badge, styles.solidBadge, { width: size, height: size }]}>
+      <Ionicons name={icon} size={iconSize} color={colors.text} />
     </View>
   );
 }
 
-const styles = StyleSheet.create({
-  badge: { alignItems: "center", justifyContent: "center" },
-  solidBadge: { backgroundColor: colors.primarySoft, borderRadius: radius.md },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    badge: { alignItems: "center", justifyContent: "center" },
+    solidBadge: {
+      backgroundColor: colors.surfaceAlt,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    inverseBadge: { backgroundColor: colors.primary, borderRadius: radius.pill },
+  });

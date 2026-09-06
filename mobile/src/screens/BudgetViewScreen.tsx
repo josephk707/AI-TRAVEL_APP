@@ -1,7 +1,6 @@
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { StatusBar } from "expo-status-bar";
 import React, { useCallback, useEffect, useState } from "react";
 import { FlatList, Switch, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,11 +12,11 @@ import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type LoadState =
   | { status: "loading" }
@@ -34,6 +33,8 @@ export function BudgetViewScreen(): React.JSX.Element {
   const { tripId } = route.params;
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [category, setCategory] = useState<ExpenseCategory>("food");
@@ -106,9 +107,8 @@ export function BudgetViewScreen(): React.JSX.Element {
   }, [tripId, category, amountText, load, splitEqually, members, user]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={[styles.flex, { paddingTop: insets.top + spacing.sm }]}>
-      <StatusBar style="light" />
       <ScreenHeader title="Trip budget" />
 
       {state.status === "loading" && (
@@ -180,7 +180,8 @@ export function BudgetViewScreen(): React.JSX.Element {
                 <TextInput
                   style={styles.amountInput}
                   placeholder="Amount (₹)"
-                  placeholderTextColor={colors.textMuted}
+                  placeholderTextColor={colors.textFaint}
+                  keyboardAppearance={isDark ? "dark" : "light"}
                   keyboardType="numeric"
                   value={amountText}
                   onChangeText={setAmountText}
@@ -192,6 +193,9 @@ export function BudgetViewScreen(): React.JSX.Element {
                     <Switch
                       value={splitEqually}
                       onValueChange={setSplitEqually}
+                      trackColor={{ false: colors.surfaceHighlight, true: colors.primary }}
+                      thumbColor={colors.surface}
+                      ios_backgroundColor={colors.surfaceHighlight}
                       testID="split-equally-switch"
                     />
                   </View>
@@ -229,74 +233,83 @@ export function BudgetViewScreen(): React.JSX.Element {
         />
       )}
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  header: { padding: spacing.lg, paddingBottom: spacing.sm },
-  title: { ...typography.title, color: colors.text },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, textAlign: "center" },
-  list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
-  summarySection: { gap: spacing.md, marginBottom: spacing.sm },
-  summaryCard: { gap: spacing.xs },
-  summaryLabel: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs },
-  summaryValue: { ...typography.subtitle, color: colors.text },
-  overBudgetBanner: {
-    flexDirection: "row",
-    gap: spacing.xs,
-    alignItems: "flex-start",
-    backgroundColor: colors.warningSoft,
-    borderRadius: radius.sm,
-    padding: spacing.sm,
-    marginTop: spacing.sm,
-  },
-  overBudgetText: { ...typography.caption, color: colors.warning, flex: 1 },
-  overBudgetInlineText: { ...typography.caption, color: colors.warning },
-  owedSection: { marginTop: spacing.sm, gap: 2 },
-  owedRow: { ...typography.caption, color: colors.text },
-  splitRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  form: { gap: spacing.sm },
-  formTitle: { ...typography.subtitle, color: colors.text },
-  categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  categoryChip: {
-    ...typography.caption,
-    color: colors.text,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    textTransform: "capitalize",
-  },
-  categoryChipActive: { backgroundColor: colors.primary, color: colors.primaryText, borderColor: colors.primary },
-  amountInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  expensesHeading: { ...typography.subtitle, color: colors.text, marginTop: spacing.sm },
-  emptyText: { ...typography.body, color: colors.textMuted },
-  expenseRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  expenseCategory: { ...typography.body, color: colors.text, textTransform: "capitalize" },
-  expenseAmount: { ...typography.body, color: colors.text },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
+    errorText: { ...typography.body, color: colors.error, textAlign: "center" },
+    list: { padding: spacing.lg, paddingTop: 0, gap: spacing.sm },
+    summarySection: { gap: spacing.md, marginBottom: spacing.sm },
+    summaryCard: { gap: spacing.xs },
+    summaryLabel: {
+      ...typography.micro,
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      marginTop: spacing.xs,
+    },
+    summaryValue: { ...typography.h2, color: colors.text },
+    overBudgetBanner: {
+      flexDirection: "row",
+      gap: spacing.xs,
+      alignItems: "flex-start",
+      backgroundColor: colors.warningSoft,
+      borderRadius: radius.sm,
+      padding: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    overBudgetText: { ...typography.caption, color: colors.warning, flex: 1 },
+    overBudgetInlineText: { ...typography.caption, color: colors.warning },
+    owedSection: { marginTop: spacing.sm, gap: 2 },
+    owedRow: { ...typography.caption, color: colors.text },
+    splitRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+    },
+    form: { gap: spacing.sm },
+    formTitle: { ...typography.subtitle, color: colors.text },
+    categoryRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
+    categoryChip: {
+      ...typography.captionMedium,
+      color: colors.textMuted,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      paddingVertical: spacing.xs + 2,
+      paddingHorizontal: spacing.sm + 4,
+      overflow: "hidden",
+      textTransform: "capitalize",
+    },
+    categoryChipActive: {
+      backgroundColor: colors.primary,
+      color: colors.primaryText,
+      borderColor: colors.primary,
+    },
+    amountInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      ...typography.body,
+    },
+    expensesHeading: { ...typography.subtitle, color: colors.text, marginTop: spacing.sm },
+    emptyText: { ...typography.body, color: colors.textMuted },
+    expenseRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+    },
+    expenseCategory: { ...typography.body, color: colors.text, textTransform: "capitalize" },
+    expenseAmount: { ...typography.bodyMedium, color: colors.text },
+  });

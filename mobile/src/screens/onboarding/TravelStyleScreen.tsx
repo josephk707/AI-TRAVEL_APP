@@ -9,7 +9,7 @@ import type { OnboardingStackParamList } from "../../navigation/OnboardingNaviga
 import { PACE_OPTIONS, TRAVEL_STYLE_OPTIONS } from "../../onboarding/onboardingOptions";
 import { useOnboardingStore } from "../../onboarding/onboardingStore";
 import { useSubmitOnboarding } from "../../onboarding/useSubmitOnboarding";
-import { colors, spacing, typography } from "../../theme/tokens";
+import { spacing, type Theme, typography, useThemedStyles } from "../../theme";
 
 /**
  * Second onboarding screen: travel style + pace.
@@ -27,6 +27,7 @@ export function TravelStyleScreen(): React.JSX.Element {
     useNavigation<NativeStackNavigationProp<OnboardingStackParamList, "TravelStyle">>();
   const { travelStyle, pace, setTravelStyle, setPace } = useOnboardingStore();
   const { submit, state: submitState, errorMessage: submitError } = useSubmitOnboarding();
+  const styles = useThemedStyles(createStyles);
 
   const handleSkip = useCallback(async () => {
     await submit();
@@ -82,9 +83,10 @@ export function TravelStyleScreen(): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  sectionLabel: { ...typography.subtitle, color: colors.text },
-  secondSectionLabel: { marginTop: spacing.md },
-  optionGroup: { gap: spacing.sm },
-  errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    sectionLabel: { ...typography.subtitle, color: colors.text },
+    secondSectionLabel: { marginTop: spacing.md },
+    optionGroup: { gap: spacing.sm },
+    errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
+  });

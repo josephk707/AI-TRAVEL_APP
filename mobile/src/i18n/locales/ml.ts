@@ -71,6 +71,11 @@ export const ml: DeepPartial<TranslationResources> = {
     loadFailed: "നിങ്ങളുടെ പ്രൊഫൈൽ ലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.",
   },
   settings: {
+    appearance: "രൂപഭാവം",
+    appearanceSystem: "സിസ്റ്റം",
+    appearanceLight: "ലൈറ്റ്",
+    appearanceDark: "ഡാർക്ക്",
+    appearanceHint: "ഈ ഉപകരണത്തിൽ Yatra AI എങ്ങനെ കാണണമെന്ന് തിരഞ്ഞെടുക്കുക.",
     title: "ക്രമീകരണങ്ങൾ",
     general: "പൊതുവായത്",
     language: "ഭാഷ",

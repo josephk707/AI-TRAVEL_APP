@@ -71,6 +71,11 @@ export const ta: DeepPartial<TranslationResources> = {
     loadFailed: "உங்கள் சுயவிவரத்தை ஏற்ற முடியவில்லை.",
   },
   settings: {
+    appearance: "தோற்றம்",
+    appearanceSystem: "சிஸ்டம்",
+    appearanceLight: "லைட்",
+    appearanceDark: "டார்க்",
+    appearanceHint: "இந்த சாதனத்தில் Yatra AI எப்படி தோன்ற வேண்டும் என்பதைத் தேர்வுசெய்யவும்.",
     title: "அமைப்புகள்",
     general: "பொது",
     language: "மொழி",

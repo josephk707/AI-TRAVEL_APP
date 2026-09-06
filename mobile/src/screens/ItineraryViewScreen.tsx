@@ -3,9 +3,8 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RouteProp } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { StatusBar } from "expo-status-bar";
 
 import { ApiError } from "../api/client";
 import { fetchOfflinePackage } from "../api/offline";
@@ -13,12 +12,12 @@ import { fetchItinerary, fetchTrip, ItineraryDay, Trip } from "../api/trips";
 import { ItineraryItemCard } from "../components/ItineraryItemCard";
 import { ErrorState } from "../components/ErrorState";
 import { EmptyState } from "../components/EmptyState";
-import { GradientBackground } from "../components/GradientBackground";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { ScreenHeader } from "../components/ScreenHeader";
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type LoadState =
@@ -38,6 +37,8 @@ export function ItineraryViewScreen(): React.JSX.Element {
   const { tripId } = route.params;
   const insets = useSafeAreaInsets();
   const { t } = useTranslation();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [refreshing, setRefreshing] = useState(false);
@@ -68,6 +69,24 @@ export function ItineraryViewScreen(): React.JSX.Element {
       cancelled = true;
     };
   }, [resolveItinerary]);
+
+  // Chat (F5) edits the plan while this screen stays mounted underneath
+  // it, so a stale timeline would otherwise greet the traveller on the way
+  // back. Re-fetch silently whenever the screen regains focus; the first
+  // focus event (mount) is skipped because the effect above already loads.
+  const initialFocusSeen = useRef(false);
+  useEffect(() => {
+    const unsubscribe = navigation.addListener?.("focus", () => {
+      if (!initialFocusSeen.current) {
+        initialFocusSeen.current = true;
+        return;
+      }
+      void resolveItinerary().then((result) => {
+        if (result.status === "success") setState(result);
+      });
+    });
+    return unsubscribe;
+  }, [navigation, resolveItinerary]);
 
   const retryLoad = useCallback(() => {
     setState({ status: "loading" });
@@ -107,30 +126,29 @@ export function ItineraryViewScreen(): React.JSX.Element {
 
   if (state.status === "loading") {
     return (
-      <GradientBackground>
+      <Screen>
         <View style={styles.centered}>
           <LoadingView label={t("itineraryView.loading")} />
         </View>
-      </GradientBackground>
+      </Screen>
     );
   }
 
   if (state.status === "error") {
     return (
-      <GradientBackground>
+      <Screen>
         <View style={styles.centered} testID="itinerary-error">
           <ErrorState message={state.message} retryLabel={t("common.retry")} onRetry={retryLoad} testID="itinerary-retry-button" />
         </View>
-      </GradientBackground>
+      </Screen>
     );
   }
 
   const totalStops = state.days.reduce((sum, day) => sum + day.items.length, 0);
 
   return (
-    <GradientBackground>
+    <Screen>
       <View style={styles.flex}>
-      <StatusBar style="light" />
       <View style={{ paddingTop: insets.top + spacing.sm }}>
         <ScreenHeader title={state.trip.title} subtitle={state.trip.destination} />
       </View>
@@ -194,7 +212,7 @@ export function ItineraryViewScreen(): React.JSX.Element {
         <ScrollView
           contentContainerStyle={styles.content}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={refresh} />
+            <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.text} />
           }
         >
           {state.days.map((day) => (
@@ -214,7 +232,7 @@ export function ItineraryViewScreen(): React.JSX.Element {
       )}
 
       <Pressable
-        style={styles.chatFab}
+        style={({ pressed }) => [styles.chatFab, pressed && styles.chatFabPressed]}
         onPress={() => navigation.navigate("Chat", { tripId })}
         testID="open-chat-fab"
         accessibilityRole="button"
@@ -222,7 +240,7 @@ export function ItineraryViewScreen(): React.JSX.Element {
         <Text style={styles.chatFabText}>💬 {t("itineraryView.adjustPlan")}</Text>
       </Pressable>
       </View>
-    </GradientBackground>
+    </Screen>
   );
 }
 
@@ -237,44 +255,60 @@ function ToolButton({
   onPress: () => void;
   testID: string;
 }): React.JSX.Element {
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
   return (
-    <Pressable style={styles.toolButton} onPress={onPress} accessibilityRole="button" testID={testID}>
-      <Ionicons name={icon} size={20} color={colors.primary} />
+    <Pressable
+      style={({ pressed }) => [styles.toolButton, pressed && styles.toolButtonPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      testID={testID}
+    >
+      <Ionicons name={icon} size={20} color={colors.text} />
       <Text style={styles.toolButtonLabel}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
-  header: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  toolsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  toolButton: { alignItems: "center", gap: 2, minWidth: 64 },
-  toolButtonLabel: { ...typography.caption, color: colors.primary },
-  downloadMessage: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl * 2 },
-  daySection: { gap: spacing.sm },
-  dayHeading: { ...typography.subtitle, color: colors.text },
-  dayItems: { gap: spacing.sm },
-  chatFab: {
-    position: "absolute",
-    right: spacing.lg,
-    bottom: spacing.lg,
-    backgroundColor: colors.primary,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.sm + 2,
-    paddingHorizontal: spacing.md,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 3,
-  },
-  chatFabText: { ...typography.subtitle, color: colors.primaryText },
-});
+const createStyles = ({ colors, shadow }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl, gap: spacing.sm },
+    header: {
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    toolsRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+    toolButton: {
+      alignItems: "center",
+      gap: 2,
+      minWidth: 64,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xs,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radius.md,
+    },
+    toolButtonPressed: { backgroundColor: colors.surfaceAlt },
+    toolButtonLabel: { ...typography.caption, color: colors.textMuted },
+    downloadMessage: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm },
+    content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xl * 2 },
+    daySection: { gap: spacing.sm },
+    dayHeading: { ...typography.subtitle, color: colors.text },
+    dayItems: { gap: spacing.sm },
+    chatFab: {
+      position: "absolute",
+      right: spacing.lg,
+      bottom: spacing.lg,
+      backgroundColor: colors.primary,
+      borderRadius: radius.lg,
+      paddingVertical: spacing.sm + 2,
+      paddingHorizontal: spacing.md,
+      ...shadow.card,
+    },
+    chatFabPressed: { backgroundColor: colors.primaryStrong, opacity: 0.9 },
+    chatFabText: { ...typography.subtitle, color: colors.primaryText },
+  });

@@ -9,7 +9,14 @@ import type { OnboardingStackParamList } from "../../navigation/OnboardingNaviga
 import { COMPANION_OPTIONS } from "../../onboarding/onboardingOptions";
 import { useOnboardingStore } from "../../onboarding/onboardingStore";
 import { useSubmitOnboarding } from "../../onboarding/useSubmitOnboarding";
-import { colors, radius, spacing, typography } from "../../theme/tokens";
+import {
+  radius,
+  spacing,
+  type Theme,
+  typography,
+  useTheme,
+  useThemedStyles,
+} from "../../theme";
 
 const MOTIVATION_MAX_LENGTH = 500;
 
@@ -27,6 +34,8 @@ export function TravelMotivationScreen(): React.JSX.Element {
   const { travelCompanion, tripMotivation, setTravelCompanion, setTripMotivation } =
     useOnboardingStore();
   const { submit, state: submitState, errorMessage: submitError } = useSubmitOnboarding();
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const handleSkip = useCallback(async () => {
     await submit();
@@ -64,7 +73,8 @@ export function TravelMotivationScreen(): React.JSX.Element {
       <TextInput
         style={styles.motivationInput}
         placeholder="e.g. trying local food, slow mornings, meeting new people…"
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={colors.textFaint}
+        keyboardAppearance={isDark ? "dark" : "light"}
         value={tripMotivation}
         onChangeText={(text) => setTripMotivation(text.slice(0, MOTIVATION_MAX_LENGTH))}
         multiline
@@ -85,26 +95,27 @@ export function TravelMotivationScreen(): React.JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
-  sectionLabel: { ...typography.subtitle, color: colors.text },
-  secondSectionLabel: { marginTop: spacing.md },
-  optionGroup: { gap: spacing.sm },
-  motivationInput: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    minHeight: 96,
-    textAlignVertical: "top",
-    ...typography.body,
-  },
-  charCount: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: "right",
-    marginTop: -spacing.xs,
-  },
-  errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    sectionLabel: { ...typography.subtitle, color: colors.text },
+    secondSectionLabel: { marginTop: spacing.md },
+    optionGroup: { gap: spacing.sm },
+    motivationInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      minHeight: 96,
+      textAlignVertical: "top",
+      ...typography.body,
+    },
+    charCount: {
+      ...typography.caption,
+      color: colors.textFaint,
+      textAlign: "right",
+      marginTop: -spacing.xs,
+    },
+    errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
+  });

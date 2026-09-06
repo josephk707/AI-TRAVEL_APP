@@ -71,6 +71,11 @@ export const kn: DeepPartial<TranslationResources> = {
     loadFailed: "ನಿಮ್ಮ ಪ್ರೊಫೈಲ್ ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ.",
   },
   settings: {
+    appearance: "ಗೋಚರತೆ",
+    appearanceSystem: "ಸಿಸ್ಟಮ್",
+    appearanceLight: "ಲೈಟ್",
+    appearanceDark: "ಡಾರ್ಕ್",
+    appearanceHint: "ಈ ಸಾಧನದಲ್ಲಿ Yatra AI ಹೇಗೆ ಕಾಣಬೇಕೆಂದು ಆಯ್ಕೆಮಾಡಿ.",
     title: "ಸೆಟ್ಟಿಂಗ್‌ಗಳು",
     general: "ಸಾಮಾನ್ಯ",
     language: "ಭಾಷೆ",

@@ -3,7 +3,6 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import React, { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { bootstrapSession, fetchMyProfile, ProfileData } from "../api/auth";
@@ -11,12 +10,20 @@ import { ApiError } from "../api/client";
 import { BottomNavBar } from "../components/BottomNavBar";
 import { Card } from "../components/Card";
 import { ErrorState } from "../components/ErrorState";
-import { GradientBackground } from "../components/GradientBackground";
 import { IconBadge } from "../components/IconBadge";
 import { LoadingView } from "../components/LoadingView";
+import { Screen } from "../components/Screen";
 import { useTranslation } from "../i18n";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import {
+  radius,
+  spacing,
+  type Theme,
+  typography,
+  useResponsive,
+  useTheme,
+  useThemedStyles,
+} from "../theme";
 
 type ProfileLoadState =
   | { status: "loading" }
@@ -24,8 +31,8 @@ type ProfileLoadState =
   | { status: "error"; message: string };
 
 /**
- * The authenticated landing screen — the app's home hub, redesigned to
- * the premium dark visual language while keeping its real data flow
+ * The authenticated landing screen — the app's home hub, rendered in the
+ * minimal monochrome visual language while keeping its real data flow
  * (POST /auth/session/bootstrap -> GET /auth/me) exactly as-is.
  */
 export function HomeScreen(): React.JSX.Element {
@@ -33,6 +40,13 @@ export function HomeScreen(): React.JSX.Element {
   const { t, syncFromServerProfile } = useTranslation();
   const [profileState, setProfileState] = useState<ProfileLoadState>({ status: "loading" });
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
+  const styles = useThemedStyles(createStyles);
+  const responsive = useResponsive();
+  // Two columns of action tiles once there is room (tablet / browser);
+  // a single stacked list on phones.
+  const actionColumns = responsive.columnsFor(300, spacing.sm);
+  const actionWidth = responsive.itemWidthFor(actionColumns, spacing.sm, spacing.lg);
 
   const loadProfile = useCallback(() => {
     bootstrapSession()
@@ -113,8 +127,7 @@ export function HomeScreen(): React.JSX.Element {
   ];
 
   return (
-    <GradientBackground>
-      <StatusBar style="light" />
+    <Screen>
       <ScrollView
         contentContainerStyle={[styles.container, { paddingTop: insets.top + spacing.md }]}
       >
@@ -126,7 +139,7 @@ export function HomeScreen(): React.JSX.Element {
           <Text style={styles.subtitle}>{t("home.subtitlePrompt")}</Text>
         </View>
 
-        <Card style={styles.card}>
+        <Card style={styles.card} variant="flat">
           <Text style={styles.cardTitle}>{t("home.yourProfile")}</Text>
 
           {profileState.status === "loading" && <LoadingView label={t("home.loadingProfile")} />}
@@ -157,11 +170,15 @@ export function HomeScreen(): React.JSX.Element {
           )}
         </Card>
 
-        <View style={styles.actionsList}>
+        <View style={[styles.actionsList, actionColumns > 1 && styles.actionsGrid]}>
           {actions.map((action) => (
             <Pressable
               key={action.testID}
-              style={({ pressed }) => [styles.actionCard, pressed && styles.actionCardPressed]}
+              style={({ pressed }) => [
+                styles.actionCard,
+                actionColumns > 1 && { width: actionWidth },
+                pressed && styles.actionCardPressed,
+              ]}
               onPress={action.onPress}
               accessibilityRole="button"
               testID={action.testID}
@@ -177,36 +194,38 @@ export function HomeScreen(): React.JSX.Element {
         </View>
       </ScrollView>
       <BottomNavBar active="Home" />
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
-    gap: spacing.md,
-  },
-  greeting: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted, marginTop: spacing.xs },
-  card: { gap: spacing.sm },
-  cardTitle: { ...typography.subtitle, color: colors.text },
-  profileRow: { gap: spacing.xs },
-  detail: { ...typography.caption, color: colors.textMuted },
-  actionsList: { gap: spacing.sm },
-  actionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-  },
-  actionCardPressed: { backgroundColor: colors.surfaceAlt },
-  actionTextGroup: { flex: 1, gap: 2 },
-  actionTitle: { ...typography.subtitle, color: colors.text },
-  actionSubtitle: { ...typography.caption, color: colors.textMuted },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    container: {
+      flexGrow: 1,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xl,
+      gap: spacing.md,
+    },
+    greeting: { ...typography.title, color: colors.text },
+    subtitle: { ...typography.body, color: colors.textMuted, marginTop: spacing.xs },
+    card: { gap: spacing.sm },
+    cardTitle: { ...typography.subtitle, color: colors.text },
+    profileRow: { gap: spacing.xs },
+    detail: { ...typography.caption, color: colors.textMuted },
+    actionsList: { gap: spacing.sm },
+    actionsGrid: { flexDirection: "row", flexWrap: "wrap" },
+    actionCard: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.md,
+    },
+    actionCardPressed: { backgroundColor: colors.surfaceAlt },
+    actionTextGroup: { flex: 1, gap: 2 },
+    actionTitle: { ...typography.subtitle, color: colors.text },
+    actionSubtitle: { ...typography.caption, color: colors.textMuted },
+  });

@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import * as ImagePicker from "expo-image-picker";
@@ -13,16 +14,15 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { StatusBar } from "expo-status-bar";
 
 import { ApiError } from "../api/client";
 import { askPhotoQuestion, PhotoQaResult } from "../api/heritage";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { ConfidenceBadge } from "../components/ConfidenceBadge";
-import { GradientBackground } from "../components/GradientBackground";
+import { Screen } from "../components/Screen";
 import type { RootStackParamList } from "../navigation/RootNavigator";
-import { colors, radius, spacing, typography } from "../theme/tokens";
+import { radius, spacing, type Theme, typography, useTheme, useThemedStyles } from "../theme";
 
 type AskState =
   | { status: "idle" }
@@ -36,6 +36,8 @@ type AskState =
 export function PhotoQAScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, "PhotoQA">>();
   const { poiId, poiName } = route.params;
+  const { colors, isDark } = useTheme();
+  const styles = useThemedStyles(createStyles);
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
@@ -85,12 +87,11 @@ export function PhotoQAScreen(): React.JSX.Element {
   }, [photoUri, question, poiId]);
 
   return (
-    <GradientBackground>
+    <Screen>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-      <StatusBar style="light" />
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>Ask about a photo</Text>
         <Text style={styles.subtitle}>Near {poiName}</Text>
@@ -99,6 +100,7 @@ export function PhotoQAScreen(): React.JSX.Element {
           <Image source={{ uri: photoUri }} style={styles.preview} testID="photo-preview" />
         ) : (
           <View style={styles.placeholder}>
+            <Ionicons name="camera-outline" size={28} color={colors.textFaint} />
             <Text style={styles.placeholderText}>No photo yet</Text>
           </View>
         )}
@@ -129,7 +131,8 @@ export function PhotoQAScreen(): React.JSX.Element {
         <TextInput
           style={styles.input}
           placeholder="What is this carving of?"
-          placeholderTextColor={colors.textMuted}
+          placeholderTextColor={colors.textFaint}
+          keyboardAppearance={isDark ? "dark" : "light"}
           value={question}
           onChangeText={setQuestion}
           testID="photo-question-input"
@@ -155,48 +158,62 @@ export function PhotoQAScreen(): React.JSX.Element {
         )}
 
         {state.status === "success" && (
-          <Card style={styles.resultCard} testID="photo-qa-result">
+          <Card style={styles.resultCard} variant="flat" testID="photo-qa-result">
             <ConfidenceBadge confidence={state.result.confidence} testID="photo-qa-confidence" />
             <Text style={styles.resultText}>{state.result.answer}</Text>
           </Card>
         )}
       </ScrollView>
       </KeyboardAvoidingView>
-    </GradientBackground>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  container: { padding: spacing.lg, gap: spacing.sm },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
-  preview: { width: "100%", height: 220, borderRadius: radius.lg, backgroundColor: colors.surface },
-  placeholder: {
-    width: "100%",
-    height: 220,
-    borderRadius: radius.lg,
-    backgroundColor: colors.surface,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  placeholderText: { ...typography.body, color: colors.textMuted },
-  captureRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
-  label: { ...typography.caption, color: colors.textMuted, marginTop: spacing.md },
-  input: {
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.sm + 2,
-    color: colors.text,
-    ...typography.body,
-  },
-  submitRow: { marginTop: spacing.md, alignItems: "flex-start" },
-  spinner: { position: "absolute", left: spacing.lg, top: spacing.sm + 2 },
-  errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
-  resultCard: { marginTop: spacing.md, gap: spacing.sm },
-  resultText: { ...typography.body, color: colors.text, lineHeight: 22 },
-});
+const createStyles = ({ colors }: Theme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    container: { padding: spacing.lg, gap: spacing.sm },
+    title: { ...typography.title, color: colors.text },
+    subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.sm },
+    preview: {
+      width: "100%",
+      height: 220,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    placeholder: {
+      width: "100%",
+      height: 220,
+      borderRadius: radius.lg,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+    },
+    placeholderText: { ...typography.body, color: colors.textMuted },
+    captureRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+    label: {
+      ...typography.micro,
+      color: colors.textMuted,
+      textTransform: "uppercase",
+      marginTop: spacing.md,
+    },
+    input: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: spacing.sm + 2,
+      color: colors.text,
+      ...typography.body,
+    },
+    submitRow: { marginTop: spacing.md, alignItems: "flex-start" },
+    spinner: { position: "absolute", left: spacing.lg, top: spacing.sm + 2 },
+    errorText: { ...typography.body, color: colors.error, marginTop: spacing.sm },
+    resultCard: { marginTop: spacing.md, gap: spacing.sm },
+    resultText: { ...typography.body, color: colors.text, lineHeight: 22 },
+  });
